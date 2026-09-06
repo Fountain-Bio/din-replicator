@@ -24,6 +24,18 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.20"
 
+# The print log and the settings are one SQLite file per machine (ADR 0004).
+# The `bundled` feature compiles SQLite into the app, so a Windows machine
+# needs nothing installed for the log to work.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+
+# Print run timestamps are RFC 3339 in UTC. `clock` is the feature that reads
+# the system clock; the rest of chrono is left out.
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+
+# The operator is the operating system user name plus the computer name.
+whoami = "2.1.3"
+
 # The Windows print path talks to the spooler directly. Win32_Graphics_Gdi and
 # Win32_Security are needed because PRINTER_INFO_2W holds a DEVMODEW pointer and
 # a security descriptor.
@@ -31,6 +43,11 @@ thiserror = "2.0.20"
 version = "0.62.2"
 features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Printing", "Win32_Security"]
 
+
+[dev-dependencies]
+# Tests that open a real database file put it in a directory that deletes
+# itself afterwards.
+tempfile = "3.27.0"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
