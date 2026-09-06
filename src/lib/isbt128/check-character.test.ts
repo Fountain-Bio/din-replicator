@@ -3,7 +3,8 @@ import { checkCharacter } from "./check-character";
 
 /**
  * Every vector below is published by ICCBBA, except the last two, which come
- * from a sample label and from a second DIN in the same set.
+ * from a sample label scanned from a production system and from a second DIN
+ * in the same set.
  */
 const VECTORS: Array<{ source: string; din: string; check: string }> = [
   { source: "ST-001 appendix A", din: "G123417654321", check: "A" },
@@ -20,8 +21,8 @@ const VECTORS: Array<{ source: string; din: string; check: string }> = [
   { source: "IG-043 section 3.1.1", din: "W000016123456", check: "X" },
   { source: "IG-043 section 3.1.1", din: "W000016987654", check: "U" },
   { source: "IG-043 section 3.1.1", din: "W000016000001", check: "C" },
-  { source: "the facility label", din: "W483626000011", check: "N" },
-  { source: "the facility label", din: "W483626000400", check: "Y" },
+  { source: "sample label", din: "W483626000011", check: "N" },
+  { source: "sample label", din: "W483626000400", check: "Y" },
 ];
 
 describe("checkCharacter", () => {

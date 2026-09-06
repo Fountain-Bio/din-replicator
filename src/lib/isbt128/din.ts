@@ -108,8 +108,8 @@ export function isFlagCharacters(flags: string): boolean {
  * ST-001 section 2.4.1 defines the payload as "=", the 13-character DIN, and
  * two flag characters. The check character is absent by design: ST-001 section
  * 7.5 keeps K out of the data content, and ADR 0002 records why this app
- * follows that rule instead of the 15-character form the the earlier label tool
- * project prints.
+ * follows that rule instead of the legacy 15-character form printed by an
+ * earlier in-house label tool.
  */
 export function barcodePayload(din: string, flags: string = DEFAULT_FLAG_CHARACTERS): string {
   const validation = validateDin(din);

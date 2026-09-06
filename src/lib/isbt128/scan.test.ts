@@ -3,30 +3,30 @@ import { checkCharacter } from "./check-character";
 import { barcodePayload } from "./din";
 import { parseScan } from "./scan";
 
-/** The DIN on the real the facility source label. Its check character is N. */
-const FOUNTAIN_DIN = "W483626000011";
+/** The sample DIN, scanned from a production label. Its check character is N. */
+const SAMPLE_DIN = "W483626000011";
 
-/** A DIN from the same the facility set whose check character is "0". */
+/** A DIN from the same sample set whose check character is "0". */
 const ZERO_CHECK_DIN = "W483626000289";
 
 describe("parseScan", () => {
   it("reads a bare DIN", () => {
-    expect(parseScan(FOUNTAIN_DIN)).toEqual({ kind: "din", din: FOUNTAIN_DIN, form: "bare" });
+    expect(parseScan(SAMPLE_DIN)).toEqual({ kind: "din", din: SAMPLE_DIN, form: "bare" });
   });
 
   it("reads the compliant 16-character payload and reports its flag characters", () => {
     expect(parseScan("=W48362600001100")).toEqual({
       kind: "din",
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       form: "payload",
       flags: "00",
     });
   });
 
-  it("reads the 15-character the earlier label tool form and confirms its check character", () => {
+  it("reads the legacy 15-character form and confirms its check character", () => {
     expect(parseScan("=W483626000011N")).toEqual({
       kind: "din",
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       form: "legacy-check",
       scannedCheck: "N",
       checkMatches: true,
@@ -36,17 +36,17 @@ describe("parseScan", () => {
   it("reports a check character that does not match the DIN", () => {
     expect(parseScan("=W483626000011X")).toEqual({
       kind: "din",
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       form: "legacy-check",
       scannedCheck: "X",
       checkMatches: false,
     });
   });
 
-  it("reads the the earlier label tool form after a scanner rule appended a 0", () => {
+  it("reads the legacy 15-character form after a scanner rule appended a 0", () => {
     expect(parseScan("=W483626000011N0")).toEqual({
       kind: "din",
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       form: "legacy-check-suffixed",
       scannedCheck: "N",
       checkMatches: true,
@@ -62,7 +62,7 @@ describe("parseScan", () => {
   it("treats a 16-character scan whose trailing pair is not K and 0 as flag characters", () => {
     expect(parseScan("=W483626000011X0")).toEqual({
       kind: "din",
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       form: "payload",
       flags: "X0",
     });
@@ -70,7 +70,7 @@ describe("parseScan", () => {
 
   /**
    * One DIN in thirty-seven has "0" as its check character. Reading a trailing
-   * "00" as the the earlier label tool form would misreport the replicas this app
+   * "00" as the legacy 15-character form would misreport the replicas this app
    * prints for those DINs.
    */
   it("reads a trailing 00 as flag characters even when the check character is 0", () => {
@@ -91,10 +91,10 @@ describe("parseScan", () => {
   });
 
   it("uppercases a scan", () => {
-    expect(parseScan("w483626000011")).toEqual({ kind: "din", din: FOUNTAIN_DIN, form: "bare" });
+    expect(parseScan("w483626000011")).toEqual({ kind: "din", din: SAMPLE_DIN, form: "bare" });
     expect(parseScan("=w483626000011n0")).toEqual({
       kind: "din",
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       form: "legacy-check-suffixed",
       scannedCheck: "N",
       checkMatches: true,
@@ -104,12 +104,12 @@ describe("parseScan", () => {
   it("drops the carriage return and line feed a scanner sends as a terminator", () => {
     expect(parseScan("W483626000011\r\n")).toEqual({
       kind: "din",
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       form: "bare",
     });
     expect(parseScan("  =W48362600001100\r\n")).toEqual({
       kind: "din",
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       form: "payload",
       flags: "00",
     });
@@ -149,9 +149,9 @@ describe("parseScan", () => {
   });
 
   it("reads back the payload this app prints", () => {
-    expect(parseScan(barcodePayload(FOUNTAIN_DIN))).toEqual({
+    expect(parseScan(barcodePayload(SAMPLE_DIN))).toEqual({
       kind: "din",
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       form: "payload",
       flags: "00",
     });

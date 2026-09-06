@@ -18,7 +18,7 @@ import {
   type DinInvalidReason,
 } from "./din";
 
-/** The length of "=" plus the DIN plus one check character, the the earlier label tool form. */
+/** The length of "=" plus the DIN plus one check character, the legacy 15-character form. */
 const LEGACY_CHECK_LENGTH = 1 + DIN_LENGTH + 1;
 
 /** The length of "=" plus the DIN plus two more characters, the compliant form. */
@@ -30,9 +30,9 @@ export type ScanForm =
   | "bare"
   /** The compliant 16-character payload: "=", the DIN, and two flag characters. */
   | "payload"
-  /** The 15-character form the the earlier label tool project prints: "=", the DIN, and K. */
+  /** The legacy 15-character form, printed by an earlier in-house label tool: "=", the DIN, and K. */
   | "legacy-check"
-  /** The the earlier label tool form after a scanner rule appended a "0". */
+  /** The legacy 15-character form after a scanner rule appended a "0". */
   | "legacy-check-suffixed";
 
 /** Why a scan did not yield a DIN. */
@@ -67,7 +67,7 @@ export type ScanResult =
   | { kind: "din"; din: string; form: "bare" }
   /** The compliant payload, which carries the two flag characters it encoded. */
   | { kind: "din"; din: string; form: "payload"; flags: string }
-  /** A the earlier label tool form, which carries the check character the scan held. */
+  /** The legacy 15-character form, which carries the check character the scan held. */
   | {
       kind: "din";
       din: string;
@@ -128,23 +128,23 @@ export function parseScan(raw: string): ScanResult {
 /**
  * Reads a scan that starts with "=" and is either 15 or 16 characters long.
  *
- * Both the compliant payload and the suffixed the earlier label tool form are 16
+ * Both the compliant payload and the suffixed legacy 15-character form are 16
  * characters, so the two trailing characters decide which one arrived. The scan
- * is the suffixed the earlier label tool form when the trailing pair is the check
+ * is the suffixed legacy 15-character form when the trailing pair is the check
  * character of the DIN followed by "0". Anything else that is a legal pair of
  * flag characters is the compliant payload.
  *
  * Two pairs need care.
  *
  * A payload whose flag characters happen to be the check character followed by
- * "0" is indistinguishable from the the earlier label tool form after a scanner rule
- * appended its "0". Both readings give the same DIN, so the replica this app
- * prints is the same either way. The only difference is that the result reports
- * a check character comparison instead of flag characters.
+ * "0" is indistinguishable from the legacy 15-character form after a scanner
+ * rule appended its "0". Both readings give the same DIN, so the replica this
+ * app prints is the same either way. The only difference is that the result
+ * reports a check character comparison instead of flag characters.
  *
  * "00" is the exception, because it is the payload this app prints itself. One
  * DIN in thirty-seven has "0" as its check character, and reading those scans
- * as the the earlier label tool form would misreport this app's own replicas. A
+ * as the legacy 15-character form would misreport this app's own replicas. A
  * trailing "00" is always the compliant payload.
  */
 function parseDinStructure(scan: string): ScanResult {

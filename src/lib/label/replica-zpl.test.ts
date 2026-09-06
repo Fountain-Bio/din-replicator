@@ -23,7 +23,7 @@ function millimetres(dots: number): number {
   return (dots / DOTS_PER_INCH) * 25.4;
 }
 
-/** The real the facility source label. Its check character is N. */
+/** The sample source label. Its check character is N. */
 const W483626000011: ReplicaLabel = {
   payload: "=W48362600001100",
   fin: "W4836",
@@ -55,7 +55,7 @@ describe("splitPayloadIntoSubsets", () => {
 });
 
 describe("countSymbolModules", () => {
-  it("counts the 145 modules of the the facility payload", () => {
+  it("counts the 145 modules of the sample payload", () => {
     // Start B, `=`, `W`, the switch to subset C, and 7 digit pairs is 11 symbol characters.
     // With the check character that is 12 characters of 11 modules, plus a 13 module stop.
     expect(countSymbolModules(splitPayloadIntoSubsets("=W48362600001100"))).toBe(145);

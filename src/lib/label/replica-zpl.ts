@@ -3,9 +3,9 @@
  *
  * The app prints replicas on a Zebra ZD411t at 300 dpi on 1.75 by 0.75 inch label stock.
  * A replica carries the same barcode payload and eye-readable text as its source label, so
- * the layout copies what the blood establishment computer system prints on the facility's source labels: a Code 128 barcode
- * across the top, and one line under it holding the DIN, the flag characters turned on their
- * side, and the check character inside a box.
+ * the layout copies what an earlier in-house label tool prints on source labels: a Code 128
+ * barcode across the top, and one line under it holding the DIN, the flag characters turned
+ * on their side, and the check character inside a box.
  *
  * Every geometry and layout rule cited here comes from ICCBBA ST-001 v6.2.2.
  * This file takes strings that are already parsed and validated. It does no ISBT 128 work of
@@ -206,7 +206,7 @@ export function buildReplicaZpl(input: ReplicaLabel): string {
   const barcodeRight = barcodeLeft + symbolWidthDots(input.payload);
   const fieldData = buildBarcodeFieldData(input.payload);
   const dinText = `${input.fin} ${input.year} ${input.sequence}`;
-  // The box sits under the right end of the bars, which is where the blood establishment computer system puts it.
+  // The box sits under the right end of the bars, which is where the source label layout puts it.
   const checkBoxLeft = barcodeRight - CHECK_BOX_SIZE_DOTS;
 
   const lines = [

@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { barcodePayload, eyeReadable, validateDin } from "./din";
 
-/** The DIN on the real the facility source label. Its check character is N. */
-const FOUNTAIN_DIN = "W483626000011";
+/** The sample DIN, scanned from a production label. Its check character is N. */
+const SAMPLE_DIN = "W483626000011";
 
 describe("validateDin", () => {
   it("splits a valid DIN into its FIN, year, and sequence", () => {
-    expect(validateDin(FOUNTAIN_DIN)).toEqual({
+    expect(validateDin(SAMPLE_DIN)).toEqual({
       ok: true,
-      din: FOUNTAIN_DIN,
+      din: SAMPLE_DIN,
       fin: "W4836",
       year: "26",
       sequence: "000011",
@@ -47,11 +47,11 @@ describe("validateDin", () => {
 
 describe("barcodePayload", () => {
   it("builds the 16-character payload with no flag in use", () => {
-    expect(barcodePayload(FOUNTAIN_DIN)).toBe("=W48362600001100");
+    expect(barcodePayload(SAMPLE_DIN)).toBe("=W48362600001100");
   });
 
   it("uses the flag characters the caller asks for", () => {
-    expect(barcodePayload(FOUNTAIN_DIN, "A1")).toBe("=W483626000011A1");
+    expect(barcodePayload(SAMPLE_DIN, "A1")).toBe("=W483626000011A1");
   });
 
   it("throws on a DIN that breaks a structure rule", () => {
@@ -59,18 +59,18 @@ describe("barcodePayload", () => {
   });
 
   it("throws on flag characters that ST-001 does not allow", () => {
-    expect(() => barcodePayload(FOUNTAIN_DIN, "0")).toThrow();
-    expect(() => barcodePayload(FOUNTAIN_DIN, "OO")).toThrow();
+    expect(() => barcodePayload(SAMPLE_DIN, "0")).toThrow();
+    expect(() => barcodePayload(SAMPLE_DIN, "OO")).toThrow();
   });
 });
 
 describe("eyeReadable", () => {
   it("formats the text as FIN, year, and sequence", () => {
-    expect(eyeReadable(FOUNTAIN_DIN).text).toBe("W4836 26 000011");
+    expect(eyeReadable(SAMPLE_DIN).text).toBe("W4836 26 000011");
   });
 
   it("returns the parts a label lays out, including the check character", () => {
-    expect(eyeReadable(FOUNTAIN_DIN)).toEqual({
+    expect(eyeReadable(SAMPLE_DIN)).toEqual({
       fin: "W4836",
       year: "26",
       sequence: "000011",
@@ -81,8 +81,8 @@ describe("eyeReadable", () => {
   });
 
   it("reports the flag characters the caller asks for, the same ones the barcode encodes", () => {
-    expect(eyeReadable(FOUNTAIN_DIN, "A1").flags).toBe("A1");
-    expect(barcodePayload(FOUNTAIN_DIN, "A1")).toBe("=W483626000011A1");
+    expect(eyeReadable(SAMPLE_DIN, "A1").flags).toBe("A1");
+    expect(barcodePayload(SAMPLE_DIN, "A1")).toBe("=W483626000011A1");
   });
 
   it("throws on a DIN that breaks a structure rule", () => {
@@ -90,6 +90,6 @@ describe("eyeReadable", () => {
   });
 
   it("throws on flag characters that ST-001 does not allow", () => {
-    expect(() => eyeReadable(FOUNTAIN_DIN, "OO")).toThrow();
+    expect(() => eyeReadable(SAMPLE_DIN, "OO")).toThrow();
   });
 });

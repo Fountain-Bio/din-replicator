@@ -2,7 +2,8 @@
  * Renders the replica label ZPL to a PNG so a person can check the layout without a printer.
  *
  * Run it with `bun run preview:label`. It writes `out/label.zpl` and `out/label.png`. The
- * sample DIN is the sample label W483626000011, whose check character is N.
+ * sample DIN is W483626000011, a sample label scanned from a production system, whose check
+ * character is N.
  *
  * The renderer is zebrash, which runs locally, so label data never leaves the machine.
  *
