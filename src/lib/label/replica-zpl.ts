@@ -1,11 +1,16 @@
 /**
  * ZPL for the replica label.
  *
- * The app prints replicas on a Zebra ZD411t at 300 dpi on 1.75 by 0.75 inch label stock.
  * A replica carries the same barcode payload and eye-readable text as its source label, so
  * the layout copies what the source labels show: a Code 128 barcode across the top, and one
  * line under it holding the DIN, the flag characters turned on their side, and the check
  * character inside a box.
+ *
+ * The layout is written in millimetres and turned into dots for whatever stock the printer
+ * holds. `DEFAULT_LABEL_STOCK` is a Zebra ZD411t at 300 dpi on 1.75 by 0.75 inch stock, which
+ * is what the app was built for; a caller that names other stock gets the same layout at the
+ * same physical size. The exported dot constants describe the default stock, and
+ * `labelLayout` works the same figures out for any other.
  *
  * Every geometry and layout rule cited here comes from ICCBBA ST-001 v6.2.2.
  * The caller passes a DIN. This file asks `../isbt128` for the barcode payload and the
@@ -26,85 +31,124 @@ import {
   type LabelFont,
 } from "./fonts";
 
-/** Print resolution of the ZD411t. Every dot measurement in this file is at 300 dpi. */
-export const DOTS_PER_INCH = 300;
+/** The print head resolutions this app knows how to lay a label out for. */
+export type PrinterDotsPerInch = 203 | 300 | 600;
+
+/** Every resolution a printer may be set to, in the order the settings screen lists them. */
+export const PRINTER_DOTS_PER_INCH_CHOICES: readonly PrinterDotsPerInch[] = [203, 300, 600];
 
 /**
- * Print resolution in dots per millimetre. A 300 dpi head is really 11.81 dots/mm, and both
- * Zebra and the zebrash preview renderer call it 12. Millimetre figures in the comments are
- * worked out from 300 dpi rather than from this rounded number.
+ * The label stock a replica is printed on, and the resolution of the head that prints it.
+ *
+ * The app was written for a Zebra ZD411t at 300 dpi on 1.75 by 0.75 inch stock, which is what
+ * `DEFAULT_LABEL_STOCK` holds. Every dot figure on a label is worked out from these three
+ * numbers, so a clinic that loads other stock or another printer gets the same layout at the
+ * same physical size.
  */
-export const DOTS_PER_MM = 12;
+export interface LabelStock {
+  /** Width of one label in inches, across the direction the stock travels. */
+  widthInches: number;
+  /** Height of one label in inches, along the direction the stock travels. */
+  heightInches: number;
+  /** How many dots to the inch the print head lays down. */
+  dotsPerInch: PrinterDotsPerInch;
+}
 
-/** Label stock width: 1.75 inch. */
-export const LABEL_WIDTH_MM = 44.45;
-/** Label stock height: 0.75 inch. */
-export const LABEL_HEIGHT_MM = 19.05;
+/** Smallest and largest label width the app will lay a replica out on, in inches. */
+export const LABEL_WIDTH_INCHES_MIN = 0.5;
+export const LABEL_WIDTH_INCHES_MAX = 4;
 
-/** Label stock width in dots. 1.75 in at 300 dpi. */
-export const LABEL_WIDTH_DOTS = 525;
-/** Label stock height in dots. 0.75 in at 300 dpi. */
-export const LABEL_HEIGHT_DOTS = 225;
+/** Smallest and largest label height the app will lay a replica out on, in inches. */
+export const LABEL_HEIGHT_INCHES_MIN = 0.25;
+export const LABEL_HEIGHT_INCHES_MAX = 4;
+
+/** The stock and printer a replica is laid out for when the caller names none. */
+export const DEFAULT_LABEL_STOCK: LabelStock = {
+  widthInches: 1.75,
+  heightInches: 0.75,
+  dotsPerInch: 300,
+};
+
+/** Print resolution of the default stock. */
+export const DOTS_PER_INCH = DEFAULT_LABEL_STOCK.dotsPerInch;
 
 /**
- * Module widths this app will print, widest first.
- *
- * Three dots at 300 dpi is 0.254 mm, the target X dimension ST-001 section 6.1.3 gives for a
- * container label. Two dots is 0.169 mm, which rounds to the 0.17 mm floor the same section
- * sets, and sits well above the 0.127 mm the section allows once a facility has checked the
- * dimension against its own readers.
- *
- * A DIN whose FIN starts with two or three letters needs 156 modules rather than 145, and
- * 156 modules at three dots does not leave room for the quiet zones on 1.75 inch stock. Those
- * labels drop to two dots per module.
+ * Print resolution in dots per millimetre, as Zebra and the zebrash preview renderer count
+ * it. A 300 dpi head is really 11.81 dots/mm and both call it 12. The millimetre figures in
+ * this file are worked out from the true dots per inch rather than from this rounded number,
+ * which is only used to tell the preview renderer how big a sheet to draw.
  */
-export const MODULE_WIDTH_CHOICES_DOTS = [3, 2] as const;
+export function dotsPerMillimetre(dotsPerInch: number): number {
+  return Math.round(dotsPerInch / 25.4);
+}
+
+/** How many whole dots `millimetres` covers on a head of `dotsPerInch`. */
+export function dotsFromMillimetres(millimetres: number, dotsPerInch: number): number {
+  return Math.round((millimetres * dotsPerInch) / 25.4);
+}
+
+/** How many millimetres `dots` covers on a head of `dotsPerInch`. */
+export function millimetresFromDots(dots: number, dotsPerInch: number): number {
+  return (dots / dotsPerInch) * 25.4;
+}
+
+/** Dots per millimetre of the default stock. */
+export const DOTS_PER_MM = dotsPerMillimetre(DEFAULT_LABEL_STOCK.dotsPerInch);
+
+/** Width of the default stock in millimetres. 1.75 inch. */
+export const LABEL_WIDTH_MM = DEFAULT_LABEL_STOCK.widthInches * 25.4;
+/** Height of the default stock in millimetres. 0.75 inch. */
+export const LABEL_HEIGHT_MM = DEFAULT_LABEL_STOCK.heightInches * 25.4;
+
+/**
+ * The X dimension ST-001 section 6.1.3 asks for on a container label, and the floor the same
+ * section sets. The section allows 0.127 mm once a facility has checked the dimension against
+ * its own readers, which this app does not rely on.
+ */
+const X_DIMENSION_TARGET_MM = 0.25;
+const X_DIMENSION_MIN_MM = 0.17;
 
 /**
  * Smallest quiet zone the symbol may have on each side. ST-001 section 6.1.3 sets it at ten
- * times the X dimension.
+ * times the X dimension, so it is a count of modules and holds at every resolution.
  */
 export const QUIET_ZONE_MIN_MODULES = 10;
 
 /**
- * Height of the bars in dots. 110 dots at 300 dpi is 9.3 mm, and the bars stand about three
- * times the cap height of the text below them, matching the source labels. ST-001 section
- * 6.1.3 asks for at least 5 mm, or 15 percent of the bar code length if that is greater. The
- * longest symbol this app prints is 145 modules at 0.254 mm, which is 36.8 mm, and 15 percent
- * of that is 5.5 mm.
+ * Height of the bars. The bars stand about three times the cap height of the text below them,
+ * matching the source labels. ST-001 section 6.1.3 asks for at least 5 mm, or 15 percent of
+ * the bar code length if that is greater. The longest symbol this app prints is 145 modules at
+ * 0.254 mm, which is 36.8 mm, and 15 percent of that is 5.5 mm.
  */
-export const BAR_HEIGHT_DOTS = 110;
-
-/**
- * Distance from the top edge of the label to the top of the bars. The bars, the gap, and
- * the eye-readable line together are 176 dots tall, so 24 dots above them leaves 25 below
- * and the content sits centred on the 225 dot label.
- */
-const BARCODE_TOP_DOTS = 24;
+const BAR_HEIGHT_MM = 9.3;
 
 /**
  * Gap between the bottom of the bars and the top of the eye-readable line. ST-001 section
  * 6.1.3 allows no printing in direct contact with the top or bottom of the bar code.
  */
-const BAR_TO_LINE_GAP_DOTS = 10;
+const BAR_TO_LINE_GAP_MM = 0.85;
 
 /**
  * White space between the ink of the DIN and the ink of the rotated flag characters.
  *
- * 16 dots at 300 dpi is 1.4 mm. A narrower gap reads as part of the DIN, which is what the
- * first printed replicas showed: the flag characters looked like two more digits on the end
- * of the donation number.
+ * A narrower gap reads as part of the DIN, which is what the first printed replicas showed:
+ * the flag characters looked like two more digits on the end of the donation number.
  */
-export const DIN_TO_FLAGS_GAP_DOTS = 16;
+const DIN_TO_FLAGS_GAP_MM = 1.35;
 
 /**
  * White space between the ink of the rotated flag characters and the left edge of the box
- * around the check character. 12 dots at 300 dpi is 1.0 mm.
+ * around the check character.
  */
-export const FLAGS_TO_BOX_GAP_DOTS = 12;
+const FLAGS_TO_BOX_GAP_MM = 1;
 
 /** White space the eye-readable line leaves at the left edge of the label. */
-export const LEFT_MARGIN_DOTS = 20;
+const LEFT_MARGIN_MM = 1.7;
+
+/** Outside size of the box that holds the check character. */
+const CHECK_BOX_SIZE_MM = 4.75;
+/** Line thickness of the box that holds the check character. */
+const CHECK_BOX_THICKNESS_MM = 0.25;
 
 /**
  * Font heights the eye-readable line may use, tallest first.
@@ -116,8 +160,184 @@ export const LEFT_MARGIN_DOTS = 20;
  * The last height is only ever reached by the worst case the ISBT 128 structure rules allow:
  * a FIN of three wide letters, printed in a bundled font on the narrowest bar code this app
  * prints. Every DIN a facility has issued so far lands well above it.
+ *
+ * At 300 dpi these come out as 50, 46, 42, 38, 34, 30, and 26 dots.
  */
-export const FONT_HEIGHT_CHOICES_DOTS = [50, 46, 42, 38, 34, 30, 26] as const;
+const FONT_HEIGHT_CHOICES_MM = [4.23, 3.89, 3.56, 3.22, 2.88, 2.54, 2.2] as const;
+
+/** How far above its `^FO` origin an upright field in the printer's own font starts its ink. */
+const FONT0_UPRIGHT_INK_TOP_MM = 0.17;
+
+/** How far below its `^FO` origin a rotated field in the printer's own font starts its ink. */
+const FONT0_ROTATED_INK_TOP_MM = 0.17;
+
+/** Names a stock the way an error message should, such as "1.75 by 0.75 inch stock at 300 dpi". */
+export function describeLabelStock(stock: LabelStock): string {
+  return `${stock.widthInches} by ${stock.heightInches} inch stock at ${stock.dotsPerInch} dpi`;
+}
+
+/**
+ * Checks a stock against the sizes and resolutions the app lays labels out for, and throws
+ * outside them. The stock can come from a saved settings file, so it is checked at runtime
+ * even though TypeScript already narrows the resolution.
+ */
+export function validateLabelStock(stock: LabelStock): void {
+  for (const [name, inches, min, max] of [
+    ["Label width", stock.widthInches, LABEL_WIDTH_INCHES_MIN, LABEL_WIDTH_INCHES_MAX],
+    ["Label height", stock.heightInches, LABEL_HEIGHT_INCHES_MIN, LABEL_HEIGHT_INCHES_MAX],
+  ] as const) {
+    if (!Number.isFinite(inches) || inches < min || inches > max) {
+      throw new Error(`${name} must be from ${min} to ${max} inches, not ${inches}`);
+    }
+  }
+  if (!PRINTER_DOTS_PER_INCH_CHOICES.includes(stock.dotsPerInch)) {
+    throw new Error(
+      `Printer resolution must be ${PRINTER_DOTS_PER_INCH_CHOICES.join(", ")} dots per inch, ` +
+        `not ${stock.dotsPerInch}`,
+    );
+  }
+}
+
+/**
+ * The module widths this app will print at `dotsPerInch`, widest first.
+ *
+ * A head draws whole dots, so the widest choice is the dot count nearest the 0.25 mm target
+ * and the narrowest is the smallest dot count that still measures the 0.17 mm floor to the
+ * hundredth of a millimetre. At 203 dpi that leaves 2 dots alone, at 300 dpi 3 dots (0.254 mm)
+ * and 2 dots (0.169 mm), and at 600 dpi 6, 5, and 4 dots.
+ *
+ * A DIN whose FIN starts with two or three letters needs 156 modules rather than 145, and 156
+ * modules at three dots does not leave room for the quiet zones on 1.75 inch stock. Those
+ * labels drop to the next choice down.
+ */
+export function moduleWidthChoicesDots(dotsPerInch: number): number[] {
+  const choices: number[] = [];
+  for (
+    let moduleDots = dotsFromMillimetres(X_DIMENSION_TARGET_MM, dotsPerInch);
+    moduleDots >= 1;
+    moduleDots -= 1
+  ) {
+    const millimetres = millimetresFromDots(moduleDots, dotsPerInch);
+    if (Math.round(millimetres * 100) / 100 < X_DIMENSION_MIN_MM) {
+      break;
+    }
+    choices.push(moduleDots);
+  }
+  if (choices.length === 0) {
+    throw new Error(
+      `A ${dotsPerInch} dpi head cannot draw a module of ${X_DIMENSION_MIN_MM} mm, ` +
+        `the smallest ST-001 section 6.1.3 allows without reader trials`,
+    );
+  }
+  return choices;
+}
+
+/** The font heights the eye-readable line may use at `dotsPerInch`, tallest first. */
+export function fontHeightChoicesDots(dotsPerInch: number): number[] {
+  const heights = FONT_HEIGHT_CHOICES_MM.map((millimetres) =>
+    dotsFromMillimetres(millimetres, dotsPerInch),
+  );
+  // A coarse head can land two of the millimetre sizes on the same dot count.
+  return [...new Set(heights)];
+}
+
+/** Every dot measurement the layout of a replica label is built from, for one stock. */
+export interface LabelLayout {
+  /** The stock and resolution these measurements were worked out for. */
+  stock: LabelStock;
+  /** Width of the label in dots. */
+  widthDots: number;
+  /** Height of the label in dots. */
+  heightDots: number;
+  /** Module widths this app will print on this stock, widest first. */
+  moduleWidthChoicesDots: readonly number[];
+  /** Height of the bars in dots. */
+  barHeightDots: number;
+  /** Distance from the top edge of the label to the top of the bars. */
+  barcodeTopDots: number;
+  /** Gap between the bottom of the bars and the top of the eye-readable line. */
+  barToLineGapDots: number;
+  /** White space between the ink of the DIN and the ink of the rotated flag characters. */
+  dinToFlagsGapDots: number;
+  /** White space between the flag characters and the left edge of the check character box. */
+  flagsToBoxGapDots: number;
+  /** White space the eye-readable line leaves at the left edge of the label. */
+  leftMarginDots: number;
+  /** Outside size of the box that holds the check character. */
+  checkBoxSizeDots: number;
+  /** Line thickness of the box that holds the check character. */
+  checkBoxThicknessDots: number;
+  /** Font heights the eye-readable line may use, tallest first. */
+  fontHeightChoicesDots: readonly number[];
+  /** How far above its origin an upright field in the printer's own font starts its ink. */
+  font0UprightInkTopDots: number;
+  /** How far below its origin a rotated field in the printer's own font starts its ink. */
+  font0RotatedInkTopDots: number;
+}
+
+/**
+ * Works out every dot measurement a replica label needs on `stock`.
+ *
+ * The bars, the gap under them, and the eye-readable line stand as one block centred down the
+ * label, so the space above the bars matches the space under the check character box to within
+ * a dot. Throws when the stock is outside the sizes the app lays out, or when that block is
+ * taller than the label.
+ */
+export function labelLayout(stock: LabelStock = DEFAULT_LABEL_STOCK): LabelLayout {
+  validateLabelStock(stock);
+  const { dotsPerInch } = stock;
+
+  const heightDots = Math.round(stock.heightInches * dotsPerInch);
+  const barHeightDots = dotsFromMillimetres(BAR_HEIGHT_MM, dotsPerInch);
+  const barToLineGapDots = dotsFromMillimetres(BAR_TO_LINE_GAP_MM, dotsPerInch);
+  const checkBoxSizeDots = dotsFromMillimetres(CHECK_BOX_SIZE_MM, dotsPerInch);
+
+  const contentHeightDots = barHeightDots + barToLineGapDots + checkBoxSizeDots;
+  if (contentHeightDots > heightDots) {
+    throw new Error(
+      `The bars, the gap, and the eye-readable line need ${contentHeightDots} dots, ` +
+        `more than the ${heightDots} dot height of ${describeLabelStock(stock)}`,
+    );
+  }
+
+  return {
+    stock,
+    widthDots: Math.round(stock.widthInches * dotsPerInch),
+    heightDots,
+    moduleWidthChoicesDots: moduleWidthChoicesDots(dotsPerInch),
+    barHeightDots,
+    barcodeTopDots: Math.floor((heightDots - contentHeightDots) / 2),
+    barToLineGapDots,
+    dinToFlagsGapDots: dotsFromMillimetres(DIN_TO_FLAGS_GAP_MM, dotsPerInch),
+    flagsToBoxGapDots: dotsFromMillimetres(FLAGS_TO_BOX_GAP_MM, dotsPerInch),
+    leftMarginDots: dotsFromMillimetres(LEFT_MARGIN_MM, dotsPerInch),
+    checkBoxSizeDots,
+    checkBoxThicknessDots: dotsFromMillimetres(CHECK_BOX_THICKNESS_MM, dotsPerInch),
+    fontHeightChoicesDots: fontHeightChoicesDots(dotsPerInch),
+    font0UprightInkTopDots: dotsFromMillimetres(FONT0_UPRIGHT_INK_TOP_MM, dotsPerInch),
+    font0RotatedInkTopDots: dotsFromMillimetres(FONT0_ROTATED_INK_TOP_MM, dotsPerInch),
+  };
+}
+
+/** The measurements of the default stock, which is what a caller that names no stock gets. */
+export const DEFAULT_LABEL_LAYOUT = labelLayout(DEFAULT_LABEL_STOCK);
+
+/** Label width in dots on the default stock. 1.75 in at 300 dpi. */
+export const LABEL_WIDTH_DOTS = DEFAULT_LABEL_LAYOUT.widthDots;
+/** Label height in dots on the default stock. 0.75 in at 300 dpi. */
+export const LABEL_HEIGHT_DOTS = DEFAULT_LABEL_LAYOUT.heightDots;
+/** Module widths on the default stock, widest first. */
+export const MODULE_WIDTH_CHOICES_DOTS = DEFAULT_LABEL_LAYOUT.moduleWidthChoicesDots;
+/** Bar height in dots on the default stock. */
+export const BAR_HEIGHT_DOTS = DEFAULT_LABEL_LAYOUT.barHeightDots;
+/** Gap between the DIN and the flag characters, in dots on the default stock. */
+export const DIN_TO_FLAGS_GAP_DOTS = DEFAULT_LABEL_LAYOUT.dinToFlagsGapDots;
+/** Gap between the flag characters and the check character box, in dots on the default stock. */
+export const FLAGS_TO_BOX_GAP_DOTS = DEFAULT_LABEL_LAYOUT.flagsToBoxGapDots;
+/** Left margin in dots on the default stock. */
+export const LEFT_MARGIN_DOTS = DEFAULT_LABEL_LAYOUT.leftMarginDots;
+/** Font heights the eye-readable line may use on the default stock, tallest first. */
+export const FONT_HEIGHT_CHOICES_DOTS = DEFAULT_LABEL_LAYOUT.fontHeightChoicesDots;
 
 /**
  * How wide each character of ZPL font 0 is, as a fraction of the font height.
@@ -162,26 +382,16 @@ const CAP_HEIGHT_RATIO = 0.78;
 /** How far a rotated field's ink sits right of its `^FO` origin, as a fraction of the height. */
 const ROTATED_INK_LEFT_RATIO = 0.22;
 
-/** How far below its `^FO` origin a rotated field's ink starts. */
-const ROTATED_INK_TOP_DOTS = 2;
-
 /** How far the two rotated flag characters reach down the label, as a fraction of the height. */
 const ROTATED_INK_HEIGHT_RATIO = 0.91;
-
-/** How far above its `^FO` origin an upright field's ink starts. */
-const UPRIGHT_INK_TOP_DOTS = 2;
-
-/** Outside size of the box that holds the check character. */
-const CHECK_BOX_SIZE_DOTS = 56;
-/** Line thickness of the box that holds the check character. */
-const CHECK_BOX_THICKNESS_DOTS = 3;
 
 /** The eye-readable text of the widest DIN the ISBT 128 structure rules allow. */
 export const WIDEST_DIN_TEXT = "WWW99 99 999999";
 
 /**
- * Width of the widest possible DIN at the smallest font this app will use. Every DIN prints
- * at this width or less, so a line that has room for it has room for any DIN.
+ * Width of the widest possible DIN at a 30 dot font, which is the second smallest height the
+ * default stock offers. Every DIN prints at this width or less on that stock, so a line that
+ * has room for it has room for any DIN.
  */
 export const DIN_TEXT_WIDTH_DOTS = dinTextWidthDots(WIDEST_DIN_TEXT, 30);
 
@@ -274,6 +484,11 @@ export interface ReplicaLabel {
    * printer's own font, which is the font the source labels use.
    */
   labelFont?: LabelFont;
+  /**
+   * The label stock in the printer and the resolution of its head. Defaults to
+   * `DEFAULT_LABEL_STOCK`, which is 1.75 by 0.75 inch at 300 dpi.
+   */
+  stock?: LabelStock;
 }
 
 /** What the printed barcode will measure, for the UI to show under the preview. */
@@ -360,26 +575,38 @@ export function countSymbolModules(split: SubsetSplit): number {
  * Picks the widest module width whose symbol still leaves a full quiet zone on each side of
  * the label. Throws when even the narrowest choice overflows the stock.
  */
-export function chooseModuleWidthDots(symbolModules: number): number {
-  for (const moduleDots of MODULE_WIDTH_CHOICES_DOTS) {
-    const needed = (symbolModules + 2 * QUIET_ZONE_MIN_MODULES) * moduleDots;
-    if (needed <= LABEL_WIDTH_DOTS) {
+export function chooseModuleWidthDots(
+  symbolModules: number,
+  layout: LabelLayout = DEFAULT_LABEL_LAYOUT,
+): number {
+  const modulesWithQuietZones = symbolModules + 2 * QUIET_ZONE_MIN_MODULES;
+  for (const moduleDots of layout.moduleWidthChoicesDots) {
+    if (modulesWithQuietZones * moduleDots <= layout.widthDots) {
       return moduleDots;
     }
   }
+  const narrowest = layout.moduleWidthChoicesDots[layout.moduleWidthChoicesDots.length - 1]!;
   throw new Error(
-    `A ${symbolModules} module bar code does not fit on ${LABEL_WIDTH_DOTS} dot wide stock`,
+    `A ${symbolModules} module bar code does not fit on ${describeLabelStock(layout.stock)}: ` +
+      `at the narrowest ${narrowest} dot module it needs ` +
+      `${modulesWithQuietZones * narrowest} dots with its quiet zones, and the label is ` +
+      `${layout.widthDots} dots wide`,
   );
 }
 
-/** Reports what the barcode for `din` will measure once printed. */
-export function replicaLabelGeometry(din: string, flags?: string): ReplicaLabelGeometry {
+/** Reports what the barcode for `din` will measure once printed on `stock`. */
+export function replicaLabelGeometry(
+  din: string,
+  flags?: string,
+  stock: LabelStock = DEFAULT_LABEL_STOCK,
+): ReplicaLabelGeometry {
+  const layout = labelLayout(stock);
   const payload = barcodePayload(din, flags);
   const symbolModules = countSymbolModules(splitPayloadIntoSubsets(payload));
-  const moduleDots = chooseModuleWidthDots(symbolModules);
+  const moduleDots = chooseModuleWidthDots(symbolModules, layout);
   const symbolWidthDots = symbolModules * moduleDots;
-  const left = Math.round((LABEL_WIDTH_DOTS - symbolWidthDots) / 2);
-  const right = LABEL_WIDTH_DOTS - left - symbolWidthDots;
+  const left = Math.round((layout.widthDots - symbolWidthDots) / 2);
+  const right = layout.widthDots - left - symbolWidthDots;
   const quietZoneDots = Math.min(left, right);
 
   // `chooseModuleWidthDots` should already guarantee this. Check it anyway, because a barcode with
@@ -395,7 +622,7 @@ export function replicaLabelGeometry(din: string, flags?: string): ReplicaLabelG
     moduleDots,
     symbolModules,
     symbolWidthDots,
-    symbolWidthMm: (symbolWidthDots / DOTS_PER_INCH) * 25.4,
+    symbolWidthMm: millimetresFromDots(symbolWidthDots, stock.dotsPerInch),
     quietZoneDots,
   };
 }
@@ -458,24 +685,33 @@ export function capHeightDots(
  * sits. Font 0 puts its ink two dots above the origin, so this is negative for
  * the printer's own font.
  */
-function uprightInkTopDots(fontHeightDots: number, labelFont: LabelFont): number {
+function uprightInkTopDots(
+  fontHeightDots: number,
+  labelFont: LabelFont,
+  layout: LabelLayout,
+): number {
   const bundled = bundledLabelFont(labelFont);
   if (bundled !== null) {
     return bundledUprightInkTopDots(bundled, fontHeightDots);
   }
-  return -UPRIGHT_INK_TOP_DOTS;
+  return -layout.font0UprightInkTopDots;
 }
 
 /**
  * How far below a rotated field's `^FO` origin its ink starts. The rotated
  * flag characters run down the label, so this is where they begin.
  */
-function rotatedInkTopDots(text: string, fontHeightDots: number, labelFont: LabelFont): number {
+function rotatedInkTopDots(
+  text: string,
+  fontHeightDots: number,
+  labelFont: LabelFont,
+  layout: LabelLayout,
+): number {
   const bundled = bundledLabelFont(labelFont);
   if (bundled !== null) {
     return bundledTextLeftBearingDots(bundled, text, fontHeightDots);
   }
-  return ROTATED_INK_TOP_DOTS;
+  return layout.font0RotatedInkTopDots;
 }
 
 /** How far down the label the rotated flag characters reach. */
@@ -510,13 +746,14 @@ export function eyeReadableLineWidthDots(
   dinText: string,
   fontHeightDots: number,
   labelFont: LabelFont = DEFAULT_LABEL_FONT,
+  layout: LabelLayout = DEFAULT_LABEL_LAYOUT,
 ): number {
   return (
     dinTextWidthDots(dinText, fontHeightDots, labelFont) +
-    DIN_TO_FLAGS_GAP_DOTS +
+    layout.dinToFlagsGapDots +
     capHeightDots(fontHeightDots, labelFont) +
-    FLAGS_TO_BOX_GAP_DOTS +
-    CHECK_BOX_SIZE_DOTS
+    layout.flagsToBoxGapDots +
+    layout.checkBoxSizeDots
   );
 }
 
@@ -530,15 +767,17 @@ export function chooseFontHeightDots(
   dinText: string,
   lineRightDots: number,
   labelFont: LabelFont = DEFAULT_LABEL_FONT,
+  layout: LabelLayout = DEFAULT_LABEL_LAYOUT,
 ): number {
-  for (const fontHeightDots of FONT_HEIGHT_CHOICES_DOTS) {
-    const left = lineRightDots - eyeReadableLineWidthDots(dinText, fontHeightDots, labelFont);
-    if (left >= LEFT_MARGIN_DOTS) {
+  for (const fontHeightDots of layout.fontHeightChoicesDots) {
+    const left =
+      lineRightDots - eyeReadableLineWidthDots(dinText, fontHeightDots, labelFont, layout);
+    if (left >= layout.leftMarginDots) {
       return fontHeightDots;
     }
   }
   throw new Error(
-    `The eye-readable line for "${dinText}" does not fit between ${LEFT_MARGIN_DOTS} and ` +
+    `The eye-readable line for "${dinText}" does not fit between ${layout.leftMarginDots} and ` +
       `${lineRightDots} dots at any font height`,
   );
 }
@@ -602,8 +841,8 @@ export function validatePrintSettings(settings: PrintSettings): void {
  * byte what this app printed before it offered a choice of font.
  *
  * Throws when the DIN or the flag characters break the ISBT 128 structure rules, when the
- * copy count is not a whole number from 1 to 999, when a print setting is out of range, or
- * when the barcode cannot fit the stock.
+ * copy count is not a whole number from 1 to 999, when a print setting is out of range, when
+ * the stock is outside the sizes the app lays out, or when the barcode cannot fit the stock.
  */
 export function buildReplicaZpl(input: ReplicaLabel): string {
   if (!Number.isInteger(input.copies) || input.copies < 1 || input.copies > MAX_COPIES) {
@@ -618,48 +857,53 @@ export function buildReplicaZpl(input: ReplicaLabel): string {
   const labelFont = input.labelFont ?? DEFAULT_LABEL_FONT;
   const bundled = bundledLabelFont(labelFont);
 
+  const stock = input.stock ?? DEFAULT_LABEL_STOCK;
+  const layout = labelLayout(stock);
+
   const payload = barcodePayload(input.din, input.flags);
   const text = eyeReadable(input.din, input.flags);
-  const geometry = replicaLabelGeometry(input.din, input.flags);
+  const geometry = replicaLabelGeometry(input.din, input.flags, stock);
 
   // The barcode is centred across the label, so its quiet zones come out equal.
-  const symbolLeft = Math.round((LABEL_WIDTH_DOTS - geometry.symbolWidthDots) / 2);
+  const symbolLeft = Math.round((layout.widthDots - geometry.symbolWidthDots) / 2);
   const symbolRight = symbolLeft + geometry.symbolWidthDots;
-  const barsBottom = BARCODE_TOP_DOTS + BAR_HEIGHT_DOTS;
+  const barsBottom = layout.barcodeTopDots + layout.barHeightDots;
 
   // The eye-readable line is right-aligned on the last bar and packed tight, the way the
   // source labels set it. A wide DIN or a narrow bar code leaves less room, so the font
   // shrinks until the line reaches back no further than the left margin.
-  const fontHeight = chooseFontHeightDots(text.text, symbolRight, labelFont);
+  const fontHeight = chooseFontHeightDots(text.text, symbolRight, labelFont, layout);
   const capHeight = capHeightDots(fontHeight, labelFont);
 
   // Right to left: the box sits under the last bar, the flag characters sit beside it, and
   // the DIN fills what is left.
-  const checkBoxLeft = symbolRight - CHECK_BOX_SIZE_DOTS;
-  const flagsInkLeft = checkBoxLeft - FLAGS_TO_BOX_GAP_DOTS - capHeight;
+  const checkBoxLeft = symbolRight - layout.checkBoxSizeDots;
+  const flagsInkLeft = checkBoxLeft - layout.flagsToBoxGapDots - capHeight;
   const dinInkLeft =
-    flagsInkLeft - DIN_TO_FLAGS_GAP_DOTS - dinTextWidthDots(text.text, fontHeight, labelFont);
+    flagsInkLeft - layout.dinToFlagsGapDots - dinTextWidthDots(text.text, fontHeight, labelFont);
   const dinLeft = dinInkLeft - textLeftBearingDots(text.text, fontHeight, labelFont);
   const flagsLeft = flagsInkLeft - rotatedInkLeftOffsetDots(fontHeight, labelFont);
 
   // The box, the DIN, and the flag characters all sit on one centre line under the bars.
-  const checkBoxTop = barsBottom + BAR_TO_LINE_GAP_DOTS;
-  const centreY = checkBoxTop + CHECK_BOX_SIZE_DOTS / 2;
-  const dinTop = Math.round(centreY - capHeight / 2) - uprightInkTopDots(fontHeight, labelFont);
+  const checkBoxTop = barsBottom + layout.barToLineGapDots;
+  const centreY = checkBoxTop + layout.checkBoxSizeDots / 2;
+  const dinTop =
+    Math.round(centreY - capHeight / 2) - uprightInkTopDots(fontHeight, labelFont, layout);
   const flagsInkHeight = rotatedInkHeightDots(text.flags, fontHeight, labelFont);
   const flagsTop =
-    Math.round(centreY - flagsInkHeight / 2) - rotatedInkTopDots(text.flags, fontHeight, labelFont);
+    Math.round(centreY - flagsInkHeight / 2) -
+    rotatedInkTopDots(text.flags, fontHeight, labelFont, layout);
 
-  if (dinInkLeft < LEFT_MARGIN_DOTS) {
+  if (dinInkLeft < layout.leftMarginDots) {
     throw new Error(
       `The eye-readable line starts at ${dinInkLeft} dots, left of the ` +
-        `${LEFT_MARGIN_DOTS} dot margin`,
+        `${layout.leftMarginDots} dot margin`,
     );
   }
-  if (checkBoxTop + CHECK_BOX_SIZE_DOTS > LABEL_HEIGHT_DOTS) {
+  if (checkBoxTop + layout.checkBoxSizeDots > layout.heightDots) {
     throw new Error(
-      `The eye-readable line ends at ${checkBoxTop + CHECK_BOX_SIZE_DOTS} dots, ` +
-        `below the ${LABEL_HEIGHT_DOTS} dot label`,
+      `The eye-readable line ends at ${checkBoxTop + layout.checkBoxSizeDots} dots, ` +
+        `below the ${layout.heightDots} dot label`,
     );
   }
 
@@ -669,7 +913,7 @@ export function buildReplicaZpl(input: ReplicaLabel): string {
   const checkInkWidth = dinTextWidthDots(text.check, fontHeight, labelFont);
   const checkLeft =
     checkBoxLeft +
-    Math.round((CHECK_BOX_SIZE_DOTS - checkInkWidth) / 2) -
+    Math.round((layout.checkBoxSizeDots - checkInkWidth) / 2) -
     textLeftBearingDots(text.check, fontHeight, labelFont);
 
   const lines = [
@@ -688,8 +932,8 @@ export function buildReplicaZpl(input: ReplicaLabel): string {
     `^MT${MEDIA_TYPE_LETTER[printSettings.printMethod]}`,
     // ^PR takes the print, slew, and backfeed speeds. They all move at the same rate here.
     `^PR${printSettings.speedIps},${printSettings.speedIps},${printSettings.speedIps}`,
-    `^PW${LABEL_WIDTH_DOTS}`,
-    `^LL${LABEL_HEIGHT_DOTS}`,
+    `^PW${layout.widthDots}`,
+    `^LL${layout.heightDots}`,
 
     // Where the printer puts the whole format on the stock. These correct a roll that sits a
     // little high or a little to one side in the printer; they move nothing within the label.
@@ -710,7 +954,7 @@ export function buildReplicaZpl(input: ReplicaLabel): string {
     `^BY${geometry.moduleDots}`,
     // ^BCN,<height>,N,N,N,N: no rotation, no printed interpretation line, no UCC check
     // digit, and mode N so the subsets come from the invocation codes in the field data.
-    `^FO${symbolLeft},${BARCODE_TOP_DOTS}^BCN,${BAR_HEIGHT_DOTS},N,N,N,N^FD${buildBarcodeFieldData(payload)}^FS`,
+    `^FO${symbolLeft},${layout.barcodeTopDots}^BCN,${layout.barHeightDots},N,N,N,N^FD${buildBarcodeFieldData(payload)}^FS`,
 
     // The DIN, in one font at one size. Font 0 on the ZD411t is CG Triumvirate Bold
     // Condensed, so it prints bold without any further instruction, and both bundled fonts
@@ -725,9 +969,9 @@ export function buildReplicaZpl(input: ReplicaLabel): string {
 
     // The check character in a box. ST-001 section 7.5 keeps the check character out of the
     // bar code, and section 7.5.1.1 requires a box drawn around it wherever it is printed.
-    `^FO${checkBoxLeft},${checkBoxTop}^GB${CHECK_BOX_SIZE_DOTS},${CHECK_BOX_SIZE_DOTS},${CHECK_BOX_THICKNESS_DOTS}^FS`,
+    `^FO${checkBoxLeft},${checkBoxTop}^GB${layout.checkBoxSizeDots},${layout.checkBoxSizeDots},${layout.checkBoxThicknessDots}^FS`,
     bundled === null
-      ? `^FO${checkBoxLeft},${dinTop}^A0N,${fontHeight},${fontHeight}^FB${CHECK_BOX_SIZE_DOTS},1,0,C,0^FD${text.check}^FS`
+      ? `^FO${checkBoxLeft},${dinTop}^A0N,${fontHeight},${fontHeight}^FB${layout.checkBoxSizeDots},1,0,C,0^FD${text.check}^FS`
       : `^FO${checkLeft},${dinTop}${fontCommand(labelFont, "N", fontHeight)}^FD${text.check}^FS`,
 
     `^PQ${input.copies}`,

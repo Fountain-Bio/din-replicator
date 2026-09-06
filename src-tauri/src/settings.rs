@@ -1,6 +1,7 @@
 //! The choices the app remembers between runs: which printer to send replicas
-//! to, whether to ask the operator to verify a replica after printing, and the
-//! largest copy count the UI offers.
+//! to, whether to ask the operator to verify a replica after printing, the
+//! largest copy count the UI offers, how the printer burns a label, and what
+//! label stock it is loaded with.
 //!
 //! Settings live in the `settings` table of the print log database, one row
 //! per setting. That table is machine-wide like the rest of the file, so every
@@ -25,6 +26,9 @@ const SPEED_IPS: &str = "speed_ips";
 const LABEL_FONT: &str = "label_font";
 const VERTICAL_OFFSET_DOTS: &str = "vertical_offset_dots";
 const HORIZONTAL_OFFSET_DOTS: &str = "horizontal_offset_dots";
+const LABEL_WIDTH_INCHES: &str = "label_width_inches";
+const LABEL_HEIGHT_INCHES: &str = "label_height_inches";
+const PRINTER_DOTS_PER_INCH: &str = "printer_dots_per_inch";
 
 /// Ask the operator to scan a replica after every print run unless they turn
 /// it off. Verification is the point of the app, so it starts on.
@@ -72,6 +76,28 @@ const SPEED_IPS_RANGE: RangeInclusive<u8> = 2..=6;
 /// larger shift would push the bar code off the label.
 const DEFAULT_OFFSET_DOTS: i16 = 0;
 const OFFSET_DOTS_RANGE: RangeInclusive<i16> = -100..=100;
+
+/// The size of one label on the roll, in inches. The clinics run 1.75 by 0.75
+/// inch stock, which is what the replica layout was drawn for.
+///
+/// The ranges cover the stock a desktop label printer takes. Anything smaller
+/// has no room for a DIN bar code and its quiet zones, and anything larger is
+/// wider than the head. `src/lib/label/replica-zpl.ts` holds the same two
+/// ranges as `LABEL_WIDTH_INCHES_MIN` and the constants beside it, and refuses
+/// to lay a label out beyond them.
+const DEFAULT_LABEL_WIDTH_INCHES: f64 = 1.75;
+const LABEL_WIDTH_INCHES_RANGE: RangeInclusive<f64> = 0.5..=4.0;
+const DEFAULT_LABEL_HEIGHT_INCHES: f64 = 0.75;
+const LABEL_HEIGHT_INCHES_RANGE: RangeInclusive<f64> = 0.25..=4.0;
+
+/// How many dots to the inch the print head lays down. The ZD411t on this desk
+/// is a 300 dpi head, and Zebra sells the same printer at 203 and 600.
+///
+/// The app works the whole label layout out from this number, so a head set
+/// wrongly prints a label at the wrong physical size. `src/lib/label/
+/// replica-zpl.ts` names the same three values as `PrinterDotsPerInch`.
+const DEFAULT_PRINTER_DOTS_PER_INCH: u16 = 300;
+const PRINTER_DOTS_PER_INCH_CHOICES: [u16; 3] = [203, 300, 600];
 
 /// How the printer makes its mark on the label stock.
 ///
@@ -156,7 +182,11 @@ impl LabelFont {
 ///
 /// Every field is always present on the wire. `selectedPrinter` is null until
 /// an operator picks a printer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The label size is a pair of `f64` inches, so this type is `PartialEq` and
+/// not `Eq`: two settings that hold a label size read back from a row compare
+/// equal only when the two sizes parse to the same number.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// The name of the print queue replicas go to, as the operating system
@@ -181,6 +211,14 @@ pub struct Settings {
     /// How far right along the label the printed content is moved, in dots. A
     /// negative number moves it left.
     pub horizontal_offset_dots: i16,
+    /// Width of one label on the roll, in inches, across the direction the
+    /// stock travels through the printer.
+    pub label_width_inches: f64,
+    /// Height of one label on the roll, in inches, along the direction the
+    /// stock travels through the printer.
+    pub label_height_inches: f64,
+    /// How many dots to the inch the print head lays down.
+    pub printer_dots_per_inch: u16,
 }
 
 impl Default for Settings {
@@ -195,6 +233,9 @@ impl Default for Settings {
             label_font: LabelFont::default(),
             vertical_offset_dots: DEFAULT_OFFSET_DOTS,
             horizontal_offset_dots: DEFAULT_OFFSET_DOTS,
+            label_width_inches: DEFAULT_LABEL_WIDTH_INCHES,
+            label_height_inches: DEFAULT_LABEL_HEIGHT_INCHES,
+            printer_dots_per_inch: DEFAULT_PRINTER_DOTS_PER_INCH,
         }
     }
 }
@@ -236,6 +277,36 @@ impl Settings {
                     OFFSET_DOTS_RANGE.end()
                 ));
             }
+        }
+        for (name, inches, range) in [
+            (
+                "the label width",
+                self.label_width_inches,
+                LABEL_WIDTH_INCHES_RANGE,
+            ),
+            (
+                "the label height",
+                self.label_height_inches,
+                LABEL_HEIGHT_INCHES_RANGE,
+            ),
+        ] {
+            // A range check on its own lets a NaN through, because every
+            // comparison against NaN is false.
+            if !inches.is_finite() || !range.contains(&inches) {
+                return Err(format!(
+                    "{name} must be from {} to {} inches",
+                    range.start(),
+                    range.end()
+                ));
+            }
+        }
+        if !PRINTER_DOTS_PER_INCH_CHOICES.contains(&self.printer_dots_per_inch) {
+            return Err(format!(
+                "the printer resolution must be {} dots per inch",
+                PRINTER_DOTS_PER_INCH_CHOICES
+                    .map(|choice| choice.to_string())
+                    .join(", ")
+            ));
         }
         Ok(())
     }
@@ -289,6 +360,18 @@ pub fn read(connection: &Connection) -> rusqlite::Result<Settings> {
             .get(HORIZONTAL_OFFSET_DOTS)
             .and_then(|value| value.parse().ok())
             .unwrap_or(defaults.horizontal_offset_dots),
+        label_width_inches: stored
+            .get(LABEL_WIDTH_INCHES)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(defaults.label_width_inches),
+        label_height_inches: stored
+            .get(LABEL_HEIGHT_INCHES)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(defaults.label_height_inches),
+        printer_dots_per_inch: stored
+            .get(PRINTER_DOTS_PER_INCH)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(defaults.printer_dots_per_inch),
     })
 }
 
@@ -328,6 +411,21 @@ pub fn write(connection: &mut Connection, settings: &Settings) -> rusqlite::Resu
         &transaction,
         HORIZONTAL_OFFSET_DOTS,
         &settings.horizontal_offset_dots.to_string(),
+    )?;
+    put(
+        &transaction,
+        LABEL_WIDTH_INCHES,
+        &settings.label_width_inches.to_string(),
+    )?;
+    put(
+        &transaction,
+        LABEL_HEIGHT_INCHES,
+        &settings.label_height_inches.to_string(),
+    )?;
+    put(
+        &transaction,
+        PRINTER_DOTS_PER_INCH,
+        &settings.printer_dots_per_inch.to_string(),
     )?;
 
     transaction.commit()?;
@@ -370,6 +468,9 @@ mod tests {
         assert_eq!(settings.label_font, LabelFont::Printer);
         assert_eq!(settings.vertical_offset_dots, 0);
         assert_eq!(settings.horizontal_offset_dots, 0);
+        assert_eq!(settings.label_width_inches, 1.75);
+        assert_eq!(settings.label_height_inches, 0.75);
+        assert_eq!(settings.printer_dots_per_inch, 300);
     }
 
     #[test]
@@ -387,6 +488,9 @@ mod tests {
             label_font: LabelFont::Mono,
             vertical_offset_dots: -12,
             horizontal_offset_dots: 8,
+            label_width_inches: 2.0,
+            label_height_inches: 1.0,
+            printer_dots_per_inch: 203,
         };
 
         let returned = write(&mut connection, &chosen).unwrap();
@@ -431,6 +535,9 @@ mod tests {
             ("label_font", "copperplate"),
             ("vertical_offset_dots", "a bit down"),
             ("horizontal_offset_dots", "a bit across"),
+            ("label_width_inches", "wide"),
+            ("label_height_inches", "tall"),
+            ("printer_dots_per_inch", "sharp"),
         ] {
             connection
                 .execute(
@@ -553,6 +660,93 @@ mod tests {
     }
 
     #[test]
+    fn a_label_size_outside_the_stock_the_app_lays_out_is_refused() {
+        for refused in [0.4, 4.1, f64::NAN, f64::INFINITY] {
+            assert!(
+                Settings {
+                    label_width_inches: refused,
+                    ..Settings::default()
+                }
+                .check()
+                .is_err(),
+                "{refused} should be refused as a label width"
+            );
+        }
+
+        for refused in [0.2, 4.1, f64::NAN] {
+            assert!(
+                Settings {
+                    label_height_inches: refused,
+                    ..Settings::default()
+                }
+                .check()
+                .is_err(),
+                "{refused} should be refused as a label height"
+            );
+        }
+
+        for accepted in [0.5, 1.75, 2.0, 4.0] {
+            assert_eq!(
+                Settings {
+                    label_width_inches: accepted,
+                    ..Settings::default()
+                }
+                .check(),
+                Ok(()),
+                "{accepted} should be accepted as a label width"
+            );
+        }
+    }
+
+    #[test]
+    fn a_printer_resolution_the_app_does_not_lay_out_for_is_refused() {
+        for refused in [0, 150, 301, 1200] {
+            assert!(
+                Settings {
+                    printer_dots_per_inch: refused,
+                    ..Settings::default()
+                }
+                .check()
+                .is_err(),
+                "{refused} should be refused"
+            );
+        }
+
+        for accepted in PRINTER_DOTS_PER_INCH_CHOICES {
+            assert_eq!(
+                Settings {
+                    printer_dots_per_inch: accepted,
+                    ..Settings::default()
+                }
+                .check(),
+                Ok(()),
+                "{accepted} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_label_size_survives_the_trip_through_a_row() {
+        let mut connection = database();
+
+        for (width, height, dots_per_inch) in [(1.75, 0.75, 300), (2.0, 1.0, 203), (4.0, 4.0, 600)]
+        {
+            let chosen = Settings {
+                label_width_inches: width,
+                label_height_inches: height,
+                printer_dots_per_inch: dots_per_inch,
+                ..Settings::default()
+            };
+
+            let returned = write(&mut connection, &chosen).unwrap();
+
+            assert_eq!(returned.label_width_inches, width);
+            assert_eq!(returned.label_height_inches, height);
+            assert_eq!(returned.printer_dots_per_inch, dots_per_inch);
+        }
+    }
+
+    #[test]
     fn the_defaults_pass_their_own_check() {
         assert_eq!(Settings::default().check(), Ok(()));
     }
@@ -587,6 +781,9 @@ mod tests {
             label_font: LabelFont::Sans,
             vertical_offset_dots: -4,
             horizontal_offset_dots: 4,
+            label_width_inches: 2.0,
+            label_height_inches: 1.0,
+            printer_dots_per_inch: 600,
         })
         .unwrap();
 
@@ -599,6 +796,9 @@ mod tests {
         assert_eq!(json["labelFont"], "sans");
         assert_eq!(json["verticalOffsetDots"], -4);
         assert_eq!(json["horizontalOffsetDots"], 4);
+        assert_eq!(json["labelWidthInches"], 2.0);
+        assert_eq!(json["labelHeightInches"], 1.0);
+        assert_eq!(json["printerDotsPerInch"], 600);
     }
 
     #[test]

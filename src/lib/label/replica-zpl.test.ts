@@ -11,6 +11,7 @@ import {
   countSymbolModules,
   DARKNESS_MAX,
   DARKNESS_MIN,
+  DEFAULT_LABEL_STOCK,
   DEFAULT_PRINT_SETTINGS,
   DIN_TEXT_WIDTH_DOTS,
   DIN_TO_FLAGS_GAP_DOTS,
@@ -22,9 +23,12 @@ import {
   FONT_HEIGHT_CHOICES_DOTS,
   LABEL_HEIGHT_DOTS,
   LABEL_WIDTH_DOTS,
+  labelLayout,
+  type LabelStock,
   LEFT_MARGIN_DOTS,
   MAX_COPIES,
   MODULE_WIDTH_CHOICES_DOTS,
+  moduleWidthChoicesDots,
   OFFSET_DOTS_MAX,
   OFFSET_DOTS_MIN,
   QUIET_ZONE_MIN_MODULES,
@@ -201,6 +205,216 @@ describe("label geometry", () => {
       expect(BAR_HEIGHT_DOTS / capHeight).toBeGreaterThan(2.5);
       expect(BAR_HEIGHT_DOTS / capHeight).toBeLessThan(4);
     }
+  });
+});
+
+describe("label stock", () => {
+  /** 2 by 1 inch stock on the same 300 dpi head the default stock is printed on. */
+  const LARGER_STOCK: LabelStock = { widthInches: 2, heightInches: 1, dotsPerInch: 300 };
+  /** The default stock on a 203 dpi head, which is the other resolution Zebra ships. */
+  const COARSE_STOCK: LabelStock = { widthInches: 1.75, heightInches: 0.75, dotsPerInch: 203 };
+
+  /** The `^GB` box line of `zpl`, split into its outside size, size, and thickness. */
+  function checkBox(zpl: string): number[] {
+    return /\^GB(\d+),(\d+),(\d+)/.exec(zpl)!.slice(1).map(Number);
+  }
+
+  it("defaults to 1.75 by 0.75 inch at 300 dpi", () => {
+    expect(DEFAULT_LABEL_STOCK).toEqual({
+      widthInches: 1.75,
+      heightInches: 0.75,
+      dotsPerInch: 300,
+    });
+  });
+
+  it("prints the same bytes for the default stock as for naming no stock at all", () => {
+    for (const din of EVERY_FIN_SHAPE) {
+      expect(buildReplicaZpl({ din, copies: 1, stock: DEFAULT_LABEL_STOCK })).toBe(
+        buildReplicaZpl({ din, copies: 1 }),
+      );
+    }
+  });
+
+  it("still prints the sample label byte for byte the way it always has", () => {
+    // Captured from the app before the stock became an input. A replica of the sample source
+    // label has to keep coming out of the printer identical, whatever else the layout learns
+    // to do, because the printed labels are compared against their source by eye.
+    expect(buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1 })).toBe(
+      "~SD16\n" +
+        "^XA\n" +
+        "^CI28\n" +
+        "^MTT\n" +
+        "^PR2,2,2\n" +
+        "^PW525\n" +
+        "^LL225\n" +
+        "^LT0\n" +
+        "^LS0\n" +
+        "^BY3\n" +
+        "^FO45,24^BCN,110,N,N,N,N^FD>:=W>548362600001100^FS\n" +
+        "^FO31,156^A0N,46,46^FDW4836 26 000011^FS\n" +
+        "^FO366,149^A0R,46,46^FD00^FS\n" +
+        "^FO424,144^GB56,56,3^FS\n" +
+        "^FO424,156^A0N,46,46^FB56,1,0,C,0^FDN^FS\n" +
+        "^PQ1\n" +
+        "^XZ\n",
+    );
+  });
+
+  it("reports the exported dot constants as the measurements of the default stock", () => {
+    const layout = labelLayout();
+
+    expect(layout.widthDots).toBe(LABEL_WIDTH_DOTS);
+    expect(layout.heightDots).toBe(LABEL_HEIGHT_DOTS);
+    expect(layout.barHeightDots).toBe(BAR_HEIGHT_DOTS);
+    expect(layout.leftMarginDots).toBe(LEFT_MARGIN_DOTS);
+    expect(layout.dinToFlagsGapDots).toBe(DIN_TO_FLAGS_GAP_DOTS);
+    expect(layout.flagsToBoxGapDots).toBe(FLAGS_TO_BOX_GAP_DOTS);
+    expect(layout.moduleWidthChoicesDots).toEqual(MODULE_WIDTH_CHOICES_DOTS);
+    expect(layout.fontHeightChoicesDots).toEqual(FONT_HEIGHT_CHOICES_DOTS);
+  });
+
+  it("offers the module widths ST-001 section 6.1.3 allows at each resolution", () => {
+    // The widest choice is the dot count nearest 0.25 mm; the narrowest is the smallest that
+    // still measures the 0.17 mm floor to the hundredth of a millimetre.
+    expect(moduleWidthChoicesDots(203)).toEqual([2]);
+    expect(moduleWidthChoicesDots(300)).toEqual([3, 2]);
+    expect(moduleWidthChoicesDots(600)).toEqual([6, 5, 4]);
+  });
+
+  it("keeps every part of the layout the same physical size at every resolution", () => {
+    for (const dotsPerInch of [203, 300, 600] as const) {
+      const layout = labelLayout({ ...DEFAULT_LABEL_STOCK, dotsPerInch });
+      // A head draws whole dots, so each measurement lands within half a dot of its target.
+      const halfADotMm = 25.4 / dotsPerInch / 2;
+
+      for (const [dots, targetMm] of [
+        [layout.barHeightDots, 9.3],
+        [layout.barToLineGapDots, 0.85],
+        [layout.dinToFlagsGapDots, 1.35],
+        [layout.flagsToBoxGapDots, 1],
+        [layout.leftMarginDots, 1.7],
+        [layout.checkBoxSizeDots, 4.75],
+        [layout.checkBoxThicknessDots, 0.25],
+      ] as const) {
+        expect(Math.abs((dots / dotsPerInch) * 25.4 - targetMm)).toBeLessThanOrEqual(halfADotMm);
+      }
+    }
+  });
+
+  describe("2 by 1 inch stock at 300 dpi", () => {
+    const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1, stock: LARGER_STOCK });
+
+    it("sets the label size to the wider, taller stock", () => {
+      expect(zpl).toContain("^PW600");
+      expect(zpl).toContain("^LL300");
+    });
+
+    it("keeps every physical measurement of the 1.75 inch label", () => {
+      expect(zpl).toContain("^BY3");
+      expect(zpl).toContain("^BCN,110,N,N,N,N");
+      expect(checkBox(zpl)).toEqual([56, 56, 3]);
+    });
+
+    it("spends the extra width on the quiet zones and the eye-readable line", () => {
+      const geometry = replicaLabelGeometry(ONE_LETTER_FIN, undefined, LARGER_STOCK);
+
+      expect(geometry).toEqual({
+        moduleDots: 3,
+        symbolModules: 145,
+        symbolWidthDots: 435,
+        symbolWidthMm: millimetres(435),
+        quietZoneDots: 82,
+      });
+      // The extra room lets the line be set in the tallest font on the list.
+      expect(fontHeight(zpl)).toBe(50);
+    });
+
+    it("prints a two letter FIN at 3 dots per module, which 1.75 inch stock cannot", () => {
+      expect(replicaLabelGeometry(TWO_LETTER_FIN, undefined, LARGER_STOCK).moduleDots).toBe(3);
+      expect(replicaLabelGeometry(TWO_LETTER_FIN).moduleDots).toBe(2);
+    });
+
+    it("still centres the bars and the line down the label", () => {
+      const barcodeTop = Number(/\^FO\d+,(\d+)\^BCN/.exec(zpl)![1]);
+      const boxTop = Number(/\^FO\d+,(\d+)\^GB/.exec(zpl)![1]);
+
+      expect(barcodeTop).toBe(62);
+      expect(Math.abs(barcodeTop - (300 - (boxTop + 56)))).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe("1.75 by 0.75 inch stock at 203 dpi", () => {
+    const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1, stock: COARSE_STOCK });
+
+    it("sets the label size in the dots a 203 dpi head counts", () => {
+      expect(zpl).toContain("^PW355");
+      expect(zpl).toContain("^LL152");
+    });
+
+    it("prints every DIN at 2 dots per module, the only width the head can draw", () => {
+      expect(zpl).toContain("^BY2");
+      for (const din of EVERY_FIN_SHAPE) {
+        expect(replicaLabelGeometry(din, undefined, COARSE_STOCK).moduleDots).toBe(2);
+      }
+    });
+
+    it("draws the bars and the check box at the same size on the label", () => {
+      // 74 dots at 203 dpi is 9.3 mm, and 38 dots is 4.75 mm, the same as 110 and 56 at 300.
+      expect(zpl).toContain("^BCN,74,N,N,N,N");
+      expect(checkBox(zpl)).toEqual([38, 38, 2]);
+    });
+
+    it("sets the eye-readable line in a font that fits the coarser head", () => {
+      expect(labelLayout(COARSE_STOCK).fontHeightChoicesDots).toEqual([34, 31, 28, 26, 23, 20, 18]);
+      expect(fontHeight(zpl)).toBe(31);
+    });
+
+    it("leaves the quiet zone ST-001 section 6.1.3 asks for", () => {
+      for (const din of EVERY_FIN_SHAPE) {
+        const geometry = replicaLabelGeometry(din, undefined, COARSE_STOCK);
+        expect(geometry.quietZoneDots).toBeGreaterThanOrEqual(
+          QUIET_ZONE_MIN_MODULES * geometry.moduleDots,
+        );
+      }
+    });
+
+    it("still centres the bars and the line down the label", () => {
+      const barcodeTop = Number(/\^FO\d+,(\d+)\^BCN/.exec(zpl)![1]);
+      const boxTop = Number(/\^FO\d+,(\d+)\^GB/.exec(zpl)![1]);
+
+      expect(Math.abs(barcodeTop - (152 - (boxTop + 38)))).toBeLessThanOrEqual(1);
+    });
+  });
+
+  it("refuses stock the barcode cannot fit across", () => {
+    const narrow: LabelStock = { widthInches: 0.75, heightInches: 0.75, dotsPerInch: 300 };
+
+    // 145 modules plus two 10 module quiet zones at 2 dots is 330, and the label is 225 wide.
+    expect(() => buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1, stock: narrow })).toThrow(
+      /does not fit on 0.75 by 0.75 inch stock at 300 dpi/,
+    );
+  });
+
+  it("refuses stock too short for the bars and the eye-readable line", () => {
+    const short: LabelStock = { widthInches: 1.75, heightInches: 0.5, dotsPerInch: 300 };
+
+    expect(() => buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1, stock: short })).toThrow(
+      /more than the 150 dot height/,
+    );
+  });
+
+  it("refuses a size or a resolution the app does not lay labels out for", () => {
+    expect(() => labelLayout({ ...DEFAULT_LABEL_STOCK, widthInches: 0.25 })).toThrow(/Label width/);
+    expect(() => labelLayout({ ...DEFAULT_LABEL_STOCK, widthInches: 5 })).toThrow(/Label width/);
+    expect(() => labelLayout({ ...DEFAULT_LABEL_STOCK, heightInches: 0.1 })).toThrow(
+      /Label height/,
+    );
+    expect(() =>
+      labelLayout({
+        ...DEFAULT_LABEL_STOCK,
+        dotsPerInch: 150 as unknown as typeof DEFAULT_LABEL_STOCK.dotsPerInch,
+      }),
+    ).toThrow(/Printer resolution/);
   });
 });
 

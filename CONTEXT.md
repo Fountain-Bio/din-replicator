@@ -47,7 +47,7 @@ The font the eye-readable text is printed in. Either the printer's own font, whi
 _Avoid_: typeface, font family, bundled font
 
 **Label stock**:
-The 1.75 by 0.75 inch media loaded in the printer.
+The media loaded in the printer, described by its width, height, and the printer's resolution. The default is 1.75 by 0.75 inch at 300 dots per inch.
 _Avoid_: media, roll, sticker
 
 ## Workflow
