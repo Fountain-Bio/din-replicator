@@ -1,6 +1,6 @@
 [package]
 name = "din-replicator"
-version = "1.0.0"
+version = "1.0.1"
 description = "Scans an ISBT 128 DIN label and prints replica labels on a USB Zebra printer"
 authors = ["DIN Replicator contributors"]
 edition = "2021"

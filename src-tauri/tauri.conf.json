@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DIN Replicator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "identifier": "org.dinreplicator.desktop",
   "build": {
     "beforeDevCommand": "bun run dev",
