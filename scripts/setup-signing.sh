@@ -236,6 +236,20 @@ fi
 # stored only when all of them are real.
 DO_AZURE=true
 
+# --apple-only and --azure-only run one half of the wizard. The two halves
+# store their secrets independently, so either can be finished on its own.
+for arg in "$@"; do
+  case "$arg" in
+    --apple-only) DO_AZURE=false ;;
+    --azure-only) DO_APPLE=false ;;
+    -h|--help)
+      printf 'usage: %s [--apple-only | --azure-only]\n' "$0"
+      exit 0
+      ;;
+    *) printf 'unknown option: %s\n' "$arg" >&2; exit 2 ;;
+  esac
+done
+
 # Command group of the Azure signing CLI extension. Microsoft renamed the
 # service, and both names are still published, so stage 7 picks whichever one
 # this machine can install.
@@ -466,6 +480,16 @@ else
     warn "team $APPLE_TEAM_ID."
     confirm "Store them anyway and fix it later?" || exit 1
   fi
+  printf '\n'
+  say "Storing the six macOS secrets on $GH_REPO now, so the Apple half is"
+  say "complete even if the Azure half stops part way."
+  set_secret APPLE_CERTIFICATE "$APPLE_CERTIFICATE"
+  set_secret APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
+  set_secret KEYCHAIN_PASSWORD "$KEYCHAIN_PASSWORD"
+  set_secret APPLE_ID "$APPLE_ID"
+  set_secret APPLE_PASSWORD "$APPLE_PASSWORD"
+  set_secret APPLE_TEAM_ID "$APPLE_TEAM_ID"
+  APPLE_SECRETS_STORED=true
   pause "Press Enter for the next stage"
 fi
 
@@ -759,14 +783,9 @@ elif ! gh auth status >/dev/null 2>&1; then
   warn "the GitHub CLI is not signed in. Sign in with: gh auth login"
 fi
 
-if [[ "$DO_APPLE" == true ]]; then
-  set_secret APPLE_CERTIFICATE "$APPLE_CERTIFICATE"
-  set_secret APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
-  set_secret KEYCHAIN_PASSWORD "$KEYCHAIN_PASSWORD"
-  set_secret APPLE_ID "$APPLE_ID"
-  set_secret APPLE_PASSWORD "$APPLE_PASSWORD"
-  set_secret APPLE_TEAM_ID "$APPLE_TEAM_ID"
-else
+if [[ "${APPLE_SECRETS_STORED:-false}" == true ]]; then
+  say "The six macOS secrets were stored at the end of the Apple stages."
+elif [[ "$DO_APPLE" != true ]]; then
   SKIPPED+=("the six macOS secrets, so macOS builds stay unsigned")
 fi
 

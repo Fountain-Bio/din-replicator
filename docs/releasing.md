@@ -46,7 +46,7 @@ Nothing is pushed, so there is a moment to read the commit before the tag reache
 
 ## The signing secrets
 
-Signing is driven by repository secrets alone. `scripts/setup-signing.sh` is an interactive
+Signing is driven by repository secrets alone. `scripts/setup-signing.sh (pass `--apple-only`or`--azure-only` to run one half; each half stores its own secrets as soon as it completes)` is an interactive
 wizard that creates every value and stores it with `gh secret set`. Run it once, and again
 whenever a credential expires.
 
