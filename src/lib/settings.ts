@@ -1,51 +1,28 @@
 /**
- * The ranges the settings screen allows and the values the app falls back to.
+ * What the settings screen's number boxes allow.
  *
- * The Rust side stores settings and hands them back. These constants describe
- * what a person may choose, and what the app uses on the one occasion it has
- * nothing to go on: the saved settings could not be read at all.
+ * The Rust side owns every default and every range: `src-tauri/src/settings.rs`
+ * hands back the defaults and refuses a value outside its range with the
+ * `invalid_input` code. Nothing here decides what a setting may be. These
+ * bounds only keep a number typed into a box from leaving it out of range, so
+ * the operator sees the box correct itself rather than a rejected save.
+ *
+ * The printing settings take their bounds from `@/lib/label/replica-zpl`,
+ * which is the module that builds the ZPL those numbers go into.
  */
 
-import { DEFAULT_LABEL_FONT } from "@/lib/label/fonts";
-import {
-  DARKNESS_MAX,
-  DARKNESS_MIN,
-  DEFAULT_PRINT_SETTINGS,
-  OFFSET_DOTS_MAX,
-  OFFSET_DOTS_MIN,
-  SPEED_IPS_MAX,
-  SPEED_IPS_MIN,
-} from "@/lib/label/replica-zpl";
-import type { Settings } from "@/lib/tauri/types";
+import { MAX_COPIES } from "@/lib/label/replica-zpl";
 
-/** The heat the printer applies, lowest and highest the printer accepts. */
-export const DARKNESS_RANGE = { min: DARKNESS_MIN, max: DARKNESS_MAX } as const;
-
-/** How fast a label leaves the printer, in inches per second. */
-export const SPEED_IPS_RANGE = { min: SPEED_IPS_MIN, max: SPEED_IPS_MAX } as const;
-
-/** How far the printed content may be moved on the label stock, in dots. */
-export const OFFSET_DOTS_RANGE = { min: OFFSET_DOTS_MIN, max: OFFSET_DOTS_MAX } as const;
-
-/**
- * What the app uses when the saved settings cannot be read.
- *
- * The printing values are the ones the label stock and the printer in use were
- * set up with, so an operator who never opens the Printing section gets labels
- * that scan.
- */
-export const FALLBACK_SETTINGS: Settings = {
-  selectedPrinter: null,
-  verifyAfterPrint: true,
-  maxCopies: 20,
-  labelFont: DEFAULT_LABEL_FONT,
-  ...DEFAULT_PRINT_SETTINGS,
-};
+/** Bounds for the settings the label module does not own. */
+export const SETTINGS_BOUNDS = {
+  /** The largest copy count one print run may ask for. */
+  maxCopies: { min: 1, max: MAX_COPIES },
+} as const;
 
 /** Keeps a number inside a range, rounded to a whole number. */
-export function clampWhole(value: number, range: { min: number; max: number }): number {
+export function clampWhole(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) {
-    return range.min;
+    return min;
   }
-  return Math.min(Math.max(Math.round(value), range.min), range.max);
+  return Math.min(Math.max(Math.round(value), min), max);
 }

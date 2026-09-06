@@ -10,49 +10,85 @@
  * A scanner configured with no suffix key ends its scan by stopping. The timer
  * here covers that: every character arms it, and it fires once the silence has
  * passed `BURST_RESET_MS`.
+ *
+ * A scanner burst is caught whatever has focus. A single key press is a
+ * different matter: `keepsItsOwnKeys` decides whether it belongs to the
+ * focused element or to the screen's shortcuts.
  */
 
 import { useEffect, useRef } from "react";
 import { BURST_RESET_MS, EMPTY_BURST, flushBurst, stepBurst, type BurstState } from "./burst";
 
 /**
- * Marks an element whose ordinary typing belongs to the element alone.
- *
- * The history search box carries this, so the letters someone types there do
- * not reach the scan screen's keyboard shortcuts. A scanner burst inside the
- * box is still caught, and the burst characters are taken back out of the box
- * afterwards.
+ * The three things about a focused element that decide who owns a key press.
+ * Plain values rather than an element, so the rule can be read and tested
+ * without a browser.
  */
-export const SCAN_OPT_OUT_ATTRIBUTE = "data-scan-opt-out";
+export interface FocusedElement {
+  /** The element's tag name in upper case, such as "BUTTON" or "INPUT". */
+  tagName: string;
+  /** What the element's `role` attribute says, or null when it has none. */
+  role: string | null;
+  /** True when the element takes typing because it is contenteditable. */
+  isContentEditable: boolean;
+}
 
-/** Spread this onto an input that should keep its own typing. */
-export const scanOptOutProps = { [SCAN_OPT_OUT_ATTRIBUTE]: "true" } as const;
+/** Tag names of elements that take typing, so the characters are theirs. */
+const TYPING_TAGS = ["INPUT", "TEXTAREA", "SELECT"];
+
+/**
+ * Tag names of elements the browser activates on Enter and the space bar.
+ *
+ * A focused button that also let the screen's Enter shortcut run would start a
+ * print run every time someone pressed Enter on Clear, on Skip, or on a screen
+ * tab in the header. The key belongs to the button alone.
+ */
+const ACTIVATING_TAGS = ["BUTTON", "A"];
+
+/**
+ * Roles whose element behaves like a button, so Enter and the space bar
+ * activate it. Radix builds its switches, tabs, and menu items this way.
+ */
+const ACTIVATING_ROLES = ["button", "tab", "menuitem", "switch"];
+
+/**
+ * True when a single key press aimed at this element belongs to the element
+ * rather than to the screen's shortcuts.
+ *
+ * This decides only who gets a loose key. A scanner burst is caught whatever
+ * has focus, and the characters are taken back out of a field afterwards.
+ */
+export function keepsItsOwnKeys(element: FocusedElement | null): boolean {
+  if (element === null) {
+    return false;
+  }
+  return (
+    TYPING_TAGS.includes(element.tagName) ||
+    ACTIVATING_TAGS.includes(element.tagName) ||
+    (element.role !== null && ACTIVATING_ROLES.includes(element.role)) ||
+    element.isContentEditable
+  );
+}
+
+/** Reads what `keepsItsOwnKeys` asks about off the target of a key event. */
+function focusedElement(target: EventTarget | null): FocusedElement | null {
+  if (!(target instanceof HTMLElement)) {
+    return null;
+  }
+  return {
+    tagName: target.tagName,
+    role: target.getAttribute("role"),
+    isContentEditable: target.isContentEditable,
+  };
+}
 
 export interface ScanListenerOptions {
   /**
-   * Called for a key press that is not part of a scanner burst and did not
-   * land in a form field. The scan screen uses it for the copy count digits,
+   * Called for a key press that is not part of a scanner burst and belongs to
+   * no focused control. The scan screen uses it for the copy count digits,
    * Enter, and Escape.
    */
   onLooseKey?: (event: KeyboardEvent) => void;
-  /** Set to false to stop listening, for example while a screen is loading. */
-  enabled?: boolean;
-}
-
-/** True when keys aimed at `target` belong to the element rather than the app. */
-function keepsItsOwnKeys(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  if (target.hasAttribute(SCAN_OPT_OUT_ATTRIBUTE)) {
-    return true;
-  }
-  return (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
-    target.isContentEditable
-  );
 }
 
 /**
@@ -92,7 +128,7 @@ export function useScanListener(
   onScan: (scan: string) => void,
   options: ScanListenerOptions = {},
 ): void {
-  const { onLooseKey, enabled = true } = options;
+  const { onLooseKey } = options;
 
   // The callbacks change on most renders. Keeping them in refs lets the
   // listener stay attached for the life of the screen, so a burst is never
@@ -106,10 +142,6 @@ export function useScanListener(
   });
 
   useEffect(() => {
-    if (!enabled) {
-      return;
-    }
-
     let burst: BurstState = EMPTY_BURST;
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
     // Where the characters of the burst being collected are landing, so they
@@ -177,7 +209,7 @@ export function useScanListener(
           return;
 
         case "loose":
-          if (!keepsItsOwnKeys(event.target)) {
+          if (!keepsItsOwnKeys(focusedElement(event.target))) {
             onLooseKeyRef.current?.(event);
           }
           return;
@@ -189,5 +221,5 @@ export function useScanListener(
       clearTimeout(flushTimer);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [enabled]);
+  }, []);
 }

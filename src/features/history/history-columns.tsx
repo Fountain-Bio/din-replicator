@@ -12,13 +12,8 @@
 
 import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon, RotateCcwIcon } from "lucide-react";
 import {
-  columnFilteringFeature,
   createColumnHelper,
-  createFilteredRowModel,
-  createPaginatedRowModel,
   createSortedRowModel,
-  filterFn_startsWith,
-  rowPaginationFeature,
   rowSortingFeature,
   tableFeatures,
 } from "@tanstack/react-table";
@@ -28,25 +23,28 @@ import { eyeReadable } from "@/lib/isbt128";
 import type { PrintRun } from "@/lib/tauri/types";
 
 /**
- * Sorting, filtering, and paging all happen in the window over the print log
- * that the screen has already loaded. Nothing else is registered, so nothing
- * else has state.
+ * Sorting is the only thing the table does for itself.
+ *
+ * The print log holds every print run this machine ever made, so it is the
+ * print log that searches and pages. The table is handed one page and puts the
+ * rows of that page in the order the operator asked for.
  */
 export const historyTableFeatures = tableFeatures({
   rowSortingFeature,
   sortedRowModel: createSortedRowModel(),
-  columnFilteringFeature,
-  filteredRowModel: createFilteredRowModel(),
-  filterFns: { startsWith: filterFn_startsWith },
-  rowPaginationFeature,
-  paginatedRowModel: createPaginatedRowModel(),
 });
 
-/** The id of the column the DIN search box filters. */
-export const DIN_COLUMN_ID = "din";
+/** Every column the print run table has. */
+export type ColumnId = "printedAt" | "din" | "copyCount" | "verification" | "actions";
 
 /** The id of the column the table sorts by when it opens. */
-export const PRINTED_AT_COLUMN_ID = "printedAt";
+export const PRINTED_AT_COLUMN_ID: ColumnId = "printedAt";
+
+/** How wide one column is and how its contents line up. */
+export interface ColumnLayout {
+  width: string;
+  align?: string;
+}
 
 /**
  * How wide each column is and how its contents line up.
@@ -55,13 +53,24 @@ export const PRINTED_AT_COLUMN_ID = "printedAt";
  * window at any size and a long name is cut with an ellipsis rather than
  * pushing the action off the edge.
  */
-export const COLUMN_LAYOUT: Record<string, { width: string; align?: string }> = {
+export const COLUMN_LAYOUT: Record<ColumnId, ColumnLayout> = {
   printedAt: { width: "20%" },
   din: { width: "auto" },
   copyCount: { width: "10%", align: "text-right" },
   verification: { width: "16%" },
   actions: { width: "9.5rem", align: "text-right" },
 };
+
+/**
+ * The layout for the column with this id.
+ *
+ * The table hands back column ids as plain strings, and every column in it is
+ * one of ours, so the id is read as a `ColumnId` here rather than at each of
+ * the three places that draw a cell.
+ */
+export function columnLayout(id: string): ColumnLayout {
+  return COLUMN_LAYOUT[id as ColumnId];
+}
 
 const helper = createColumnHelper<typeof historyTableFeatures, PrintRun>();
 
@@ -156,9 +165,8 @@ export function historyColumns({ onPrintAgain }: HistoryColumnActions) {
     }),
 
     helper.accessor("din", {
-      id: DIN_COLUMN_ID,
+      id: "din",
       header: "DIN",
-      filterFn: "startsWith",
       cell: ({ row }) => {
         const run = row.original;
         const who = `${run.operatorUser} on ${run.hostname}`;

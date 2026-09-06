@@ -1,10 +1,13 @@
 /**
- * Says in plain words what a printer is doing. The scan screen and the
- * settings screen both show this, so the wording is written once here.
+ * Says in plain words what a printer is doing and how it is attached.
+ *
+ * Every sentence the app has about a printer's state is in this file. The scan
+ * screen, the settings screen, and the development mock all read them from
+ * here, so an operator meets one wording wherever the answer appears.
  */
 
 import { cn } from "cn";
-import { PRINTER_FAULT, type PrinterState } from "@/lib/tauri/types";
+import { PRINTER_FAULT, type PrinterConnection, type PrinterState } from "@/lib/tauri/types";
 
 /** What the printer reports, as a sentence an operator can act on. */
 export function printerStateText(state: PrinterState): string {
@@ -56,9 +59,28 @@ function printerStateSummary(state: PrinterState): string {
   }
 }
 
+/**
+ * How a connection reads beside a printer's name, such as `USB` or
+ * `Network 192.0.2.14`. An empty string when there is nothing worth saying.
+ *
+ * Whether the printer sits on the desk or somewhere on the network is all an
+ * operator needs to tell two printers apart. Device URIs, serial numbers, and
+ * driver names never reach the screen.
+ */
+export function connectionText(connection: PrinterConnection): string {
+  switch (connection.kind) {
+    case "usb":
+      return "USB";
+    case "network":
+      return connection.host === null ? "Network" : `Network ${connection.host}`;
+    case "other":
+      return "";
+  }
+}
+
 export interface PrinterStatusProps {
-  /** The printer's state, or null while the app is still asking for it. */
-  state: PrinterState | null;
+  /** What the printer reports about itself right now. */
+  state: PrinterState;
   className?: string;
 }
 
@@ -72,8 +94,7 @@ export interface PrinterStatusProps {
  * an operator passes over every minute.
  */
 export function PrinterStatus({ state, className }: PrinterStatusProps) {
-  const ready = state !== null && state.kind === "ready";
-  const text = state === null ? "Reading the printer" : printerStateSummary(state);
+  const ready = state.kind === "ready";
 
   return (
     <span className={cn("inline-flex items-center gap-2 text-sm", className)}>
@@ -81,11 +102,11 @@ export function PrinterStatus({ state, className }: PrinterStatusProps) {
         aria-hidden
         className={cn(
           "size-2 shrink-0 rounded-full transition-colors duration-200",
-          state === null ? "bg-muted-foreground/40" : ready ? "bg-ok" : "bg-destructive",
+          ready ? "bg-ok" : "bg-destructive",
         )}
       />
-      <span className={cn(state !== null && !ready ? "text-destructive" : "text-muted-foreground")}>
-        {text}
+      <span className={cn(ready ? "text-muted-foreground" : "text-destructive")}>
+        {printerStateSummary(state)}
       </span>
     </span>
   );

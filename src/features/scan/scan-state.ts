@@ -6,9 +6,14 @@
  * screen. Keeping the decisions here means they can be read and tested without
  * a browser, and the component is left with rendering and with the calls that
  * touch the printer and the print log.
+ *
+ * `canPrint` and `canSetCopyCount` are the two rules the screen and the
+ * keyboard shortcuts share, so the Print button and the Enter key can never
+ * disagree about whether a print run may start.
  */
 
-import { barcodePayload, eyeReadable, parseScan, type NotDinReason } from "@/lib/isbt128";
+import { eyeReadable, parseScan, type NotDinReason } from "@/lib/isbt128";
+import type { PrinterState } from "@/lib/tauri/types";
 
 /** The flag characters this app prints and expects to read back. */
 const PRINTED_FLAGS = "00";
@@ -43,15 +48,21 @@ export type ScanPhase =
    * A print run finished and the app is waiting for the operator to scan one
    * of the new labels.
    */
-  | { kind: "verifying"; printRunId: number; din: string; copies: number };
+  | { kind: "verifying"; printRunId: number; din: string; copyCount: number };
 
 export interface ScanState {
   /** The DIN loaded for printing, or null while the screen waits for a scan. */
   din: string | null;
+  /**
+   * The flag characters the scanned barcode carried, or null when the scan
+   * carried none. A source label that is not flagged carries `00`, which is
+   * what the replica prints whatever the source said.
+   */
+  scannedFlags: string | null;
   /** Copy count for the next print run. */
-  copies: number;
+  copyCount: number;
   /** The largest copy count the operator may choose. Comes from settings. */
-  maxCopies: number;
+  maxCopyCount: number;
   phase: ScanPhase;
   /** The sentence under the DIN, or null when there is nothing to say. */
   notice: Notice | null;
@@ -62,10 +73,10 @@ export type ScanAction =
   /** A scan arrived, from the scanner or from the manual entry box. */
   | { type: "scanned"; raw: string }
   /** Load a DIN without scanning, which is what "Print again" does. */
-  | { type: "load"; din: string; copies: number }
-  | { type: "set-copies"; copies: number }
+  | { type: "load"; din: string; copyCount: number }
+  | { type: "set-copy-count"; copyCount: number }
   /** The settings screen changed the ceiling on the copy count. */
-  | { type: "set-max-copies"; maxCopies: number }
+  | { type: "set-max-copy-count"; maxCopyCount: number }
   /** Clear button or Escape: go back to waiting for a scan. */
   | { type: "clear" }
   | { type: "print-started" }
@@ -79,7 +90,7 @@ export type ScanAction =
   | {
       type: "print-succeeded";
       printRunId: number;
-      copies: number;
+      copyCount: number;
       /** Settings decide whether a verification scan is asked for. */
       verifyAfterPrint: boolean;
     }
@@ -89,11 +100,12 @@ export type ScanAction =
   | { type: "verification-recorded" };
 
 /** The state of a screen that has never seen a scan. */
-export function initialScanState(maxCopies: number): ScanState {
+export function initialScanState(maxCopyCount: number): ScanState {
   return {
     din: null,
-    copies: 1,
-    maxCopies,
+    scannedFlags: null,
+    copyCount: 1,
+    maxCopyCount,
     phase: { kind: "idle" },
     notice: null,
     pendingVerification: null,
@@ -103,6 +115,37 @@ export function initialScanState(maxCopies: number): ScanState {
 /** The eye-readable form of a DIN, such as `W4836 26 000011`. */
 export function dinText(din: string): string {
   return eyeReadable(din).text;
+}
+
+/**
+ * True when the screen will take a change to the copy count.
+ *
+ * The stepper, the copy count box, and the digit shortcuts all follow this one
+ * rule: there is a DIN to print and no print run is in flight.
+ */
+export function canSetCopyCount(state: ScanState): boolean {
+  return state.din !== null && state.phase.kind === "idle";
+}
+
+/**
+ * True when pressing Print, or Enter, would start a print run.
+ *
+ * The Print button and the Enter shortcut both ask this, so the two can never
+ * disagree. A print run needs a DIN on the screen, no print run already in
+ * flight, a printer that reports itself ready, and a print log that can record
+ * what comes out.
+ */
+export function canPrint(
+  state: ScanState,
+  printerState: PrinterState | null,
+  blockedReason: string | null,
+): boolean {
+  return (
+    canSetCopyCount(state) &&
+    printerState !== null &&
+    printerState.kind === "ready" &&
+    blockedReason === null
+  );
 }
 
 /** The sentence that names what a scan held when it was not a DIN. */
@@ -134,11 +177,11 @@ function notDinMessage(reason: NotDinReason): string {
 }
 
 /** Keeps a copy count inside the range the stepper allows. */
-function clampCopies(copies: number, maxCopies: number): number {
-  if (!Number.isFinite(copies)) {
+function clampCopyCount(copyCount: number, maxCopyCount: number): number {
+  if (!Number.isFinite(copyCount)) {
     return 1;
   }
-  return Math.min(Math.max(Math.round(copies), 1), Math.max(maxCopies, 1));
+  return Math.min(Math.max(Math.round(copyCount), 1), Math.max(maxCopyCount, 1));
 }
 
 /**
@@ -203,12 +246,28 @@ function reduceSourceScan(state: ScanState, raw: string): ScanState {
     };
   }
 
+  // Only the compliant 16-character payload carries flag characters. The other
+  // forms say nothing about them, which reads the same as the `00` a replica
+  // prints.
+  const scannedFlags = result.form === "payload" ? result.flags : null;
+
   return {
     ...state,
     din: result.din,
-    copies: 1,
+    scannedFlags,
+    copyCount: 1,
     phase: { kind: "idle" },
-    notice: null,
+    // ADR 0002 fixes the replica's flag characters at `00`, so a source label
+    // that was flagged prints as a label that is not. The operator is told,
+    // because the replica and its source then differ in a way that is visible
+    // to a scanner.
+    notice:
+      scannedFlags === null || scannedFlags === PRINTED_FLAGS
+        ? null
+        : {
+            tone: "info",
+            text: `The source label carried flag characters ${scannedFlags}; the replica prints ${PRINTED_FLAGS} as decided in ADR 0002.`,
+          },
     pendingVerification: null,
   };
 }
@@ -229,24 +288,27 @@ export function scanReducer(state: ScanState, action: ScanAction): ScanState {
       return {
         ...state,
         din: action.din,
-        copies: clampCopies(action.copies, state.maxCopies),
+        // A print run from the history carries the DIN alone. The flag
+        // characters of the label it came from are not part of the record.
+        scannedFlags: null,
+        copyCount: clampCopyCount(action.copyCount, state.maxCopyCount),
         phase: { kind: "idle" },
         notice: null,
         pendingVerification: null,
       };
 
-    case "set-copies":
-      return { ...state, copies: clampCopies(action.copies, state.maxCopies) };
+    case "set-copy-count":
+      return { ...state, copyCount: clampCopyCount(action.copyCount, state.maxCopyCount) };
 
-    case "set-max-copies":
+    case "set-max-copy-count":
       return {
         ...state,
-        maxCopies: action.maxCopies,
-        copies: clampCopies(state.copies, action.maxCopies),
+        maxCopyCount: action.maxCopyCount,
+        copyCount: clampCopyCount(state.copyCount, action.maxCopyCount),
       };
 
     case "clear":
-      return initialScanState(state.maxCopies);
+      return initialScanState(state.maxCopyCount);
 
     case "print-started":
       return { ...state, phase: { kind: "printing" }, notice: null };
@@ -278,11 +340,11 @@ export function scanReducer(state: ScanState, action: ScanAction): ScanState {
       if (din === null) {
         return state;
       }
-      const replicas = action.copies === 1 ? "1 replica" : `${action.copies} replicas`;
+      const replicas = action.copyCount === 1 ? "1 replica" : `${action.copyCount} replicas`;
       return {
         ...state,
         phase: action.verifyAfterPrint
-          ? { kind: "verifying", printRunId: action.printRunId, din, copies: action.copies }
+          ? { kind: "verifying", printRunId: action.printRunId, din, copyCount: action.copyCount }
           : { kind: "idle" },
         notice: { tone: "success", text: `Printed ${replicas} of ${dinText(din)}` },
       };
@@ -301,9 +363,4 @@ export function scanReducer(state: ScanState, action: ScanAction): ScanState {
     case "verification-recorded":
       return { ...state, pendingVerification: null };
   }
-}
-
-/** The barcode payload for the DIN on the screen, or null when none is loaded. */
-export function loadedPayload(state: ScanState): string | null {
-  return state.din === null ? null : barcodePayload(state.din);
 }

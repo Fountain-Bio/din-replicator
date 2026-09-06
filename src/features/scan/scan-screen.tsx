@@ -19,22 +19,25 @@ import { DinParts } from "@/components/din";
 import { PrinterStatus } from "@/components/printer-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { SelectedPrinter } from "@/features/printer/use-printers";
 import { barcodePayload, eyeReadable } from "@/lib/isbt128";
-import { scanOptOutProps } from "@/lib/scanner";
-import type { LabelFont, PrinterInfo, PrinterState } from "@/lib/tauri/types";
+import type { LabelFont } from "@/lib/label/fonts";
+import { printLogUnavailableText } from "@/lib/print-log";
 import { CopyCount } from "./copy-count";
 import { LabelPreview } from "./label-preview";
-import type { Notice, ScanAction, ScanState } from "./scan-state";
+import {
+  canPrint,
+  canSetCopyCount,
+  type Notice,
+  type ScanAction,
+  type ScanState,
+} from "./scan-state";
 
 export interface ScanScreenProps {
   state: ScanState;
   dispatch: (action: ScanAction) => void;
-  /** The name settings hold, whether or not that printer is installed. */
-  selectedPrinterName: string | null;
-  /** The chosen printer, or null when settings name none or name a missing one. */
-  printer: PrinterInfo | null;
-  /** The printer's state, read fresh, or null while it loads. */
-  printerState: PrinterState | null;
+  /** Which printer replicas go to, or why there is none to send them to. */
+  printer: SelectedPrinter;
   /** The font the replica is set in, so the preview shows what will print. */
   labelFont: LabelFont;
   /**
@@ -50,9 +53,7 @@ export interface ScanScreenProps {
 export function ScanScreen({
   state,
   dispatch,
-  selectedPrinterName,
   printer,
-  printerState,
   labelFont,
   blockedReason,
   onPrint,
@@ -61,13 +62,14 @@ export function ScanScreen({
   const [typedDin, setTypedDin] = useState("");
 
   const eye = state.din === null ? null : eyeReadable(state.din);
+  const printerState = printer.kind === "found" ? printer.state : null;
   const printerReady = printerState !== null && printerState.kind === "ready";
-  // The screen only takes a print run, a copy count, or a clear while it is
-  // idle. The keyboard shortcuts in App follow the same rule.
-  const idle = state.phase.kind === "idle";
   const printing = state.phase.kind === "printing";
   const verifying = state.phase.kind === "verifying";
-  const canPrint = idle && printerReady && blockedReason === null;
+  // The Print button and the Enter shortcut ask the same question, and the
+  // copy count control and the digit shortcuts ask the other one.
+  const printable = canPrint(state, printerState, blockedReason);
+  const countable = canSetCopyCount(state);
 
   function submitTypedDin() {
     if (typedDin.trim().length === 0) {
@@ -80,17 +82,10 @@ export function ScanScreen({
   return (
     <div className="@container flex h-full min-h-0 flex-col gap-5 @4xl:gap-7">
       <div className="flex flex-col gap-3">
-        <PrinterLine
-          selectedName={selectedPrinterName}
-          printer={printer}
-          state={printerState}
-          onGoToSettings={onGoToSettings}
-        />
+        <PrinterLine printer={printer} onGoToSettings={onGoToSettings} />
 
         {blockedReason !== null && (
-          <Banner tone="error">
-            Printing is off because the print log cannot be opened: {blockedReason}
-          </Banner>
+          <Banner tone="error">{printLogUnavailableText(blockedReason)}</Banner>
         )}
 
         {/* While the app waits for a verification scan, the step it is waiting
@@ -148,15 +143,15 @@ export function ScanScreen({
 
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4">
                   <CopyCount
-                    value={state.copies}
-                    max={state.maxCopies}
-                    disabled={!idle}
-                    onChange={(copies) => dispatch({ type: "set-copies", copies })}
+                    value={state.copyCount}
+                    max={state.maxCopyCount}
+                    disabled={!countable}
+                    onChange={(copyCount) => dispatch({ type: "set-copy-count", copyCount })}
                   />
                   <Button
                     size="lg"
                     className="h-11 min-w-36 px-7 text-base active:scale-[0.985]"
-                    disabled={!canPrint}
+                    disabled={!printable}
                     onClick={onPrint}
                   >
                     <PrinterIcon className="size-5" />
@@ -171,7 +166,7 @@ export function ScanScreen({
                   >
                     Clear
                   </Button>
-                  {idle && !printerReady && blockedReason === null && (
+                  {countable && !printerReady && blockedReason === null && (
                     <span className="text-sm text-muted-foreground">
                       Printing waits for the printer.
                     </span>
@@ -191,7 +186,6 @@ export function ScanScreen({
       <div className="flex flex-wrap items-center gap-3 border-t pt-4">
         <Input
           id="manual-din"
-          {...scanOptOutProps}
           value={typedDin}
           aria-label="Type a DIN"
           placeholder="Type a DIN, such as W483626000011"
@@ -282,27 +276,23 @@ function VerificationStep({ notice, onSkip }: { notice: Notice | null; onSkip: (
  * one means something changed.
  */
 function PrinterLine({
-  selectedName,
   printer,
-  state,
   onGoToSettings,
 }: {
-  selectedName: string | null;
-  printer: PrinterInfo | null;
-  state: PrinterState | null;
+  printer: SelectedPrinter;
   onGoToSettings: () => void;
 }) {
-  if (printer === null) {
+  if (printer.kind !== "found") {
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-3">
         <AlertTriangleIcon className="size-4 shrink-0 text-destructive" />
         <p className="min-w-0 flex-1 text-sm text-destructive">
-          {selectedName === null
+          {printer.kind === "none"
             ? "No printer is chosen yet."
-            : `The saved printer ${selectedName} is not connected to this computer.`}
+            : `The saved printer ${printer.name} is not connected to this computer.`}
         </p>
         <Button variant="outline" size="lg" className="h-9" onClick={onGoToSettings}>
-          {selectedName === null ? "Choose a printer" : "Choose another printer"}
+          {printer.kind === "none" ? "Choose a printer" : "Choose another printer"}
         </Button>
       </div>
     );
@@ -311,13 +301,13 @@ function PrinterLine({
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
       <PrinterIcon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="max-w-[28rem] truncate text-sm font-medium" title={printer.name}>
-        {printer.name}
+      <span className="max-w-[28rem] truncate text-sm font-medium" title={printer.printer.name}>
+        {printer.printer.name}
       </span>
       <span aria-hidden className="text-border">
         ·
       </span>
-      <PrinterStatus state={state} />
+      <PrinterStatus state={printer.state} />
     </div>
   );
 }

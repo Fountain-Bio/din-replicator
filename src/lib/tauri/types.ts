@@ -56,12 +56,8 @@ export interface PrinterInfo {
   name: string;
   /** What the operating system says the printer is. Can be empty. */
   description: string;
-  /**
-   * How the printer is attached. Absent until every platform's Rust side fills
-   * it in; `printerConnection` in `@/lib/printer/connection` reads the same
-   * shape out of `description` while that is the case.
-   */
-  connection?: PrinterConnection;
+  /** How the printer is attached to this computer. */
+  connection: PrinterConnection;
   /**
    * True when the operating system's name or description for this printer says
    * it is the label printer model the app prints replicas on. The UI puts

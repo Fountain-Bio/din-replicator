@@ -16,8 +16,8 @@ export {
   type BurstState,
 } from "./burst";
 export {
-  SCAN_OPT_OUT_ATTRIBUTE,
-  scanOptOutProps,
+  keepsItsOwnKeys,
   useScanListener,
+  type FocusedElement,
   type ScanListenerOptions,
 } from "./use-scan-listener";

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { PrinterState } from "@/lib/tauri/types";
 import {
+  canPrint,
+  canSetCopyCount,
   initialScanState,
-  loadedPayload,
   scanReducer,
   type ScanAction,
   type ScanState,
@@ -14,6 +16,9 @@ const PAYLOAD = "=W48362600001100";
 /** The eye-readable form of the sample DIN. */
 const DIN_TEXT = "W4836 26 000011";
 
+const READY: PrinterState = { kind: "ready" };
+const PAUSED: PrinterState = { kind: "paused" };
+
 /** Runs a list of actions from the starting state and returns where they land. */
 function run(actions: ScanAction[], start: ScanState = initialScanState(20)): ScanState {
   return actions.reduce(scanReducer, start);
@@ -25,12 +30,12 @@ function loaded(): ScanState {
 }
 
 /** A screen that has just printed and is waiting for a verification scan. */
-function verifying(copies = 3): ScanState {
+function verifying(copyCount = 3): ScanState {
   return run(
     [
-      { type: "set-copies", copies },
+      { type: "set-copy-count", copyCount },
       { type: "print-started" },
-      { type: "print-succeeded", printRunId: 7, copies, verifyAfterPrint: true },
+      { type: "print-succeeded", printRunId: 7, copyCount, verifyAfterPrint: true },
     ],
     loaded(),
   );
@@ -41,18 +46,17 @@ describe("scanReducer", () => {
     const state = initialScanState(20);
 
     expect(state.din).toBeNull();
-    expect(state.copies).toBe(1);
+    expect(state.copyCount).toBe(1);
     expect(state.notice).toBeNull();
-    expect(loadedPayload(state)).toBeNull();
+    expect(state.scannedFlags).toBeNull();
   });
 
   it("loads the DIN from a compliant payload scan", () => {
     const state = loaded();
 
     expect(state.din).toBe(DIN);
-    expect(state.copies).toBe(1);
+    expect(state.copyCount).toBe(1);
     expect(state.notice).toBeNull();
-    expect(loadedPayload(state)).toBe(PAYLOAD);
   });
 
   it("loads the DIN from a bare DIN typed into the manual entry box", () => {
@@ -105,7 +109,7 @@ describe("scanReducer", () => {
     const other = "W483626000023";
     const state = run(
       [
-        { type: "set-copies", copies: 5 },
+        { type: "set-copy-count", copyCount: 5 },
         { type: "scanned", raw: other },
       ],
       loaded(),
@@ -113,26 +117,26 @@ describe("scanReducer", () => {
 
     expect(state.din).toBe(other);
     // A new source label starts a new print run, so the copy count restarts.
-    expect(state.copies).toBe(1);
+    expect(state.copyCount).toBe(1);
   });
 
   it("keeps the copy count inside the range settings allow", () => {
-    expect(run([{ type: "set-copies", copies: 0 }], loaded()).copies).toBe(1);
-    expect(run([{ type: "set-copies", copies: 99 }], loaded()).copies).toBe(20);
+    expect(run([{ type: "set-copy-count", copyCount: 0 }], loaded()).copyCount).toBe(1);
+    expect(run([{ type: "set-copy-count", copyCount: 99 }], loaded()).copyCount).toBe(20);
     expect(
       run(
-        [{ type: "set-max-copies", maxCopies: 4 }],
-        run([{ type: "set-copies", copies: 20 }], loaded()),
-      ).copies,
+        [{ type: "set-max-copy-count", maxCopyCount: 4 }],
+        run([{ type: "set-copy-count", copyCount: 20 }], loaded()),
+      ).copyCount,
     ).toBe(4);
   });
 
   it("reports a successful print run and stays on the DIN", () => {
     const state = run(
       [
-        { type: "set-copies", copies: 3 },
+        { type: "set-copy-count", copyCount: 3 },
         { type: "print-started" },
-        { type: "print-succeeded", printRunId: 7, copies: 3, verifyAfterPrint: false },
+        { type: "print-succeeded", printRunId: 7, copyCount: 3, verifyAfterPrint: false },
       ],
       loaded(),
     );
@@ -144,7 +148,7 @@ describe("scanReducer", () => {
 
   it("uses the singular when one replica was printed", () => {
     const state = run(
-      [{ type: "print-succeeded", printRunId: 7, copies: 1, verifyAfterPrint: false }],
+      [{ type: "print-succeeded", printRunId: 7, copyCount: 1, verifyAfterPrint: false }],
       loaded(),
     );
 
@@ -155,7 +159,7 @@ describe("scanReducer", () => {
     const state = run(
       [
         { type: "print-started" },
-        { type: "print-failed", message: "the printer is paused, so nothing was sent to it" },
+        { type: "print-failed", message: "Paused. Start the printer in the operating system." },
       ],
       loaded(),
     );
@@ -163,14 +167,14 @@ describe("scanReducer", () => {
     expect(state.phase).toEqual({ kind: "idle" });
     expect(state.notice).toEqual({
       tone: "error",
-      text: "the printer is paused, so nothing was sent to it",
+      text: "Paused. Start the printer in the operating system.",
     });
   });
 
   it("warns and records nothing when the labels printed but the log refused", () => {
     const state = run(
       [
-        { type: "set-copies", copies: 3 },
+        { type: "set-copy-count", copyCount: 3 },
         { type: "print-started" },
         { type: "print-not-recorded", reason: "the print log cannot be opened" },
       ],
@@ -189,7 +193,7 @@ describe("scanReducer", () => {
   it("keeps the DIN and the copy count after a print run went unrecorded", () => {
     const state = run(
       [
-        { type: "set-copies", copies: 4 },
+        { type: "set-copy-count", copyCount: 4 },
         { type: "print-started" },
         { type: "print-not-recorded", reason: "the disk is full" },
       ],
@@ -197,7 +201,7 @@ describe("scanReducer", () => {
     );
 
     expect(state.din).toBe(DIN);
-    expect(state.copies).toBe(4);
+    expect(state.copyCount).toBe(4);
   });
 
   it("takes a new scan after a print run went unrecorded", () => {
@@ -225,7 +229,7 @@ describe("scanReducer", () => {
   it("asks for a verification scan when settings want one", () => {
     const state = verifying();
 
-    expect(state.phase).toEqual({ kind: "verifying", printRunId: 7, din: DIN, copies: 3 });
+    expect(state.phase).toEqual({ kind: "verifying", printRunId: 7, din: DIN, copyCount: 3 });
   });
 
   it("passes verification when a replica scans back as the printed payload", () => {
@@ -292,10 +296,103 @@ describe("scanReducer", () => {
   });
 
   it("loads a DIN and a copy count from a print run in the history", () => {
-    const state = run([{ type: "load", din: DIN, copies: 6 }]);
+    const state = run([{ type: "load", din: DIN, copyCount: 6 }]);
 
     expect(state.din).toBe(DIN);
-    expect(state.copies).toBe(6);
-    expect(loadedPayload(state)).toBe(PAYLOAD);
+    expect(state.copyCount).toBe(6);
+  });
+});
+
+describe("flag characters on a source label", () => {
+  it("says nothing when the source label carried the flag characters replicas print", () => {
+    const state = loaded();
+
+    expect(state.scannedFlags).toBe("00");
+    expect(state.notice).toBeNull();
+  });
+
+  it("warns when the source label carried other flag characters", () => {
+    const state = run([{ type: "scanned", raw: "=W48362600001101" }]);
+
+    expect(state.din).toBe(DIN);
+    expect(state.scannedFlags).toBe("01");
+    expect(state.notice).toEqual({
+      tone: "info",
+      text: "The source label carried flag characters 01; the replica prints 00 as decided in ADR 0002.",
+    });
+  });
+
+  it("says nothing about a form that carries no flag characters", () => {
+    const bare = run([{ type: "scanned", raw: DIN }]);
+    const legacy = run([{ type: "scanned", raw: "=W483626000011N" }]);
+
+    expect(bare.scannedFlags).toBeNull();
+    expect(bare.notice).toBeNull();
+    expect(legacy.scannedFlags).toBeNull();
+    expect(legacy.notice).toBeNull();
+  });
+
+  it("forgets the flag characters when the screen is cleared", () => {
+    const state = run([{ type: "clear" }], run([{ type: "scanned", raw: "=W48362600001101" }]));
+
+    expect(state.scannedFlags).toBeNull();
+  });
+
+  it("carries no flag characters for a DIN loaded from the history", () => {
+    const state = run(
+      [{ type: "load", din: DIN, copyCount: 2 }],
+      run([{ type: "scanned", raw: "=W48362600001101" }]),
+    );
+
+    expect(state.scannedFlags).toBeNull();
+    expect(state.notice).toBeNull();
+  });
+});
+
+describe("canSetCopyCount", () => {
+  it("refuses while no DIN is loaded", () => {
+    expect(canSetCopyCount(initialScanState(20))).toBe(false);
+  });
+
+  it("allows a loaded DIN on an idle screen", () => {
+    expect(canSetCopyCount(loaded())).toBe(true);
+  });
+
+  it("refuses while a print run is in flight", () => {
+    expect(canSetCopyCount(run([{ type: "print-started" }], loaded()))).toBe(false);
+  });
+
+  it("refuses while the app waits for a verification scan", () => {
+    expect(canSetCopyCount(verifying())).toBe(false);
+  });
+});
+
+describe("canPrint", () => {
+  it("allows a loaded DIN with a ready printer and a working print log", () => {
+    expect(canPrint(loaded(), READY, null)).toBe(true);
+  });
+
+  it("refuses while no DIN is loaded", () => {
+    expect(canPrint(initialScanState(20), READY, null)).toBe(false);
+  });
+
+  it("refuses while a print run is in flight", () => {
+    expect(canPrint(run([{ type: "print-started" }], loaded()), READY, null)).toBe(false);
+  });
+
+  it("refuses while the app waits for a verification scan", () => {
+    expect(canPrint(verifying(), READY, null)).toBe(false);
+  });
+
+  it("refuses while the printer's state is still being read", () => {
+    expect(canPrint(loaded(), null, null)).toBe(false);
+  });
+
+  it("refuses while the printer is not ready", () => {
+    expect(canPrint(loaded(), PAUSED, null)).toBe(false);
+  });
+
+  it("refuses while the print log cannot be opened", () => {
+    expect(canPrint(loaded(), READY, "the folder is read only")).toBe(false);
   });
 });

@@ -15,7 +15,7 @@ export interface CopyCountProps {
   value: number;
   max: number;
   disabled: boolean;
-  onChange: (copies: number) => void;
+  onChange: (copyCount: number) => void;
 }
 
 export function CopyCount({ value, max, disabled, onChange }: CopyCountProps) {

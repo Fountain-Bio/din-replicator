@@ -13,7 +13,7 @@
  */
 
 import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
-import { PrinterStatus } from "@/components/printer-status";
+import { connectionText, PrinterStatus } from "@/components/printer-status";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
@@ -30,13 +30,23 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { BUNDLED_LABEL_FONTS, type LabelFont } from "@/lib/label/fonts";
-import { MAX_COPIES } from "@/lib/label/replica-zpl";
-import { connectionText, printerConnection } from "@/lib/printer/connection";
-import { clampWhole, DARKNESS_RANGE, OFFSET_DOTS_RANGE, SPEED_IPS_RANGE } from "@/lib/settings";
+import {
+  DARKNESS_MAX,
+  DARKNESS_MIN,
+  OFFSET_DOTS_MAX,
+  OFFSET_DOTS_MIN,
+  SPEED_IPS_MAX,
+  SPEED_IPS_MIN,
+} from "@/lib/label/replica-zpl";
+import { printLogUnavailableText } from "@/lib/print-log";
+import { clampWhole, SETTINGS_BOUNDS } from "@/lib/settings";
 import type { PrinterInfo, PrintMethod, Settings, StorageInfo } from "@/lib/tauri/types";
 
 export interface SettingsScreenProps {
-  settings: Settings;
+  /** The saved choices, or null until they have been read. */
+  settings: Settings | null;
+  /** Why the saved choices could not be read, or null when they were. */
+  settingsError: string | null;
   printers: PrinterInfo[];
   /** True while the printer list is being read from the operating system. */
   loadingPrinters: boolean;
@@ -84,12 +94,13 @@ const LABEL_FONTS: Array<{ value: LabelFont; label: string; explanation: string 
 
 /** One printer as a line in the picker: its name, then how it is attached. */
 function printerOptionText(printer: PrinterInfo): string {
-  const connection = connectionText(printerConnection(printer));
+  const connection = connectionText(printer.connection);
   return connection.length === 0 ? printer.name : `${printer.name} · ${connection}`;
 }
 
 export function SettingsScreen({
   settings,
+  settingsError,
   printers,
   loadingPrinters,
   storage,
@@ -97,6 +108,19 @@ export function SettingsScreen({
   onChange,
   onRefreshPrinters,
 }: SettingsScreenProps) {
+  // Every setting lives in the print log database, so settings that cannot be
+  // read mean a print log that is out of reach. There is nothing to show and
+  // nothing safe to guess, so the screen says so and offers no controls.
+  if (settings === null) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {settingsError === null
+          ? "Reading the saved settings"
+          : `The saved settings could not be read, so nothing on this screen can be changed and printing is off. ${settingsError}`}
+      </p>
+    );
+  }
+
   // Settings can name a printer the operating system no longer lists, which is
   // what a renamed or unplugged printer looks like from here.
   const chosenPrinter = printers.find((printer) => printer.name === settings.selectedPrinter);
@@ -196,24 +220,25 @@ export function SettingsScreen({
 
       <Section
         title="Copy count"
-        description={`The most replicas the scan screen lets one print run produce, up to ${MAX_COPIES}.`}
+        description={`The most replicas the scan screen lets one print run produce, up to ${SETTINGS_BOUNDS.maxCopies.max}.`}
       >
         <div className="flex items-center gap-3">
           <Input
             id="max-copies"
             type="number"
             inputMode="numeric"
-            min={1}
-            max={MAX_COPIES}
+            min={SETTINGS_BOUNDS.maxCopies.min}
+            max={SETTINGS_BOUNDS.maxCopies.max}
             value={settings.maxCopies}
             className="h-10 w-24 text-base tabular-nums"
             onChange={(event) =>
               onChange({
                 ...settings,
-                maxCopies: clampWhole(Number(event.currentTarget.value), {
-                  min: 1,
-                  max: MAX_COPIES,
-                }),
+                maxCopies: clampWhole(
+                  Number(event.currentTarget.value),
+                  SETTINGS_BOUNDS.maxCopies.min,
+                  SETTINGS_BOUNDS.maxCopies.max,
+                ),
               })
             }
           />
@@ -297,20 +322,23 @@ export function SettingsScreen({
               id="darkness"
               type="number"
               inputMode="numeric"
-              min={DARKNESS_RANGE.min}
-              max={DARKNESS_RANGE.max}
+              min={DARKNESS_MIN}
+              max={DARKNESS_MAX}
               value={settings.darkness}
               className="h-10 w-24 text-base tabular-nums"
               onChange={(event) =>
                 onChange({
                   ...settings,
-                  darkness: clampWhole(Number(event.currentTarget.value), DARKNESS_RANGE),
+                  darkness: clampWhole(
+                    Number(event.currentTarget.value),
+                    DARKNESS_MIN,
+                    DARKNESS_MAX,
+                  ),
                 })
               }
             />
             <p className="text-sm text-muted-foreground">
-              {DARKNESS_RANGE.min} to {DARKNESS_RANGE.max}. Higher is darker. Raise it when replicas
-              look faded.
+              {DARKNESS_MIN} to {DARKNESS_MAX}. Higher is darker. Raise it when replicas look faded.
             </p>
           </div>
 
@@ -322,20 +350,24 @@ export function SettingsScreen({
               id="speed-ips"
               type="number"
               inputMode="numeric"
-              min={SPEED_IPS_RANGE.min}
-              max={SPEED_IPS_RANGE.max}
+              min={SPEED_IPS_MIN}
+              max={SPEED_IPS_MAX}
               value={settings.speedIps}
               className="h-10 w-24 text-base tabular-nums"
               onChange={(event) =>
                 onChange({
                   ...settings,
-                  speedIps: clampWhole(Number(event.currentTarget.value), SPEED_IPS_RANGE),
+                  speedIps: clampWhole(
+                    Number(event.currentTarget.value),
+                    SPEED_IPS_MIN,
+                    SPEED_IPS_MAX,
+                  ),
                 })
               }
             />
             <p className="text-sm text-muted-foreground">
-              Inches per second, {SPEED_IPS_RANGE.min} to {SPEED_IPS_RANGE.max}. Slower prints
-              darker and sharper.
+              Inches per second, {SPEED_IPS_MIN} to {SPEED_IPS_MAX}. Slower prints darker and
+              sharper.
             </p>
           </div>
 
@@ -350,8 +382,8 @@ export function SettingsScreen({
               id="vertical-offset"
               type="number"
               inputMode="numeric"
-              min={OFFSET_DOTS_RANGE.min}
-              max={OFFSET_DOTS_RANGE.max}
+              min={OFFSET_DOTS_MIN}
+              max={OFFSET_DOTS_MAX}
               value={settings.verticalOffsetDots}
               className="h-10 w-24 text-base tabular-nums"
               onChange={(event) =>
@@ -359,14 +391,15 @@ export function SettingsScreen({
                   ...settings,
                   verticalOffsetDots: clampWhole(
                     Number(event.currentTarget.value),
-                    OFFSET_DOTS_RANGE,
+                    OFFSET_DOTS_MIN,
+                    OFFSET_DOTS_MAX,
                   ),
                 })
               }
             />
             <p className="text-sm text-muted-foreground">
-              Dots, {OFFSET_DOTS_RANGE.min} to {OFFSET_DOTS_RANGE.max}. A positive number moves what
-              is printed down the label. 12 dots is a millimetre.
+              Dots, {OFFSET_DOTS_MIN} to {OFFSET_DOTS_MAX}. A positive number moves what is printed
+              down the label. 12 dots is a millimetre.
             </p>
           </div>
 
@@ -378,8 +411,8 @@ export function SettingsScreen({
               id="horizontal-offset"
               type="number"
               inputMode="numeric"
-              min={OFFSET_DOTS_RANGE.min}
-              max={OFFSET_DOTS_RANGE.max}
+              min={OFFSET_DOTS_MIN}
+              max={OFFSET_DOTS_MAX}
               value={settings.horizontalOffsetDots}
               className="h-10 w-24 text-base tabular-nums"
               onChange={(event) =>
@@ -387,14 +420,15 @@ export function SettingsScreen({
                   ...settings,
                   horizontalOffsetDots: clampWhole(
                     Number(event.currentTarget.value),
-                    OFFSET_DOTS_RANGE,
+                    OFFSET_DOTS_MIN,
+                    OFFSET_DOTS_MAX,
                   ),
                 })
               }
             />
             <p className="text-sm text-muted-foreground">
-              Dots, {OFFSET_DOTS_RANGE.min} to {OFFSET_DOTS_RANGE.max}. A positive number moves what
-              is printed to the right.
+              Dots, {OFFSET_DOTS_MIN} to {OFFSET_DOTS_MAX}. A positive number moves what is printed
+              to the right.
             </p>
           </div>
         </CollapsibleContent>
@@ -411,9 +445,7 @@ export function SettingsScreen({
         ) : storage === null ? (
           <span>Reading where the print log lives</span>
         ) : storage.unavailable !== null ? (
-          <span className="text-destructive">
-            Printing is off because the print log cannot be opened: {storage.unavailable}
-          </span>
+          <span className="text-destructive">{printLogUnavailableText(storage.unavailable)}</span>
         ) : (
           <>
             <span className="font-mono text-xs break-all">{storage.databasePath}</span>
