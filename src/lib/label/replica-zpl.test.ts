@@ -289,7 +289,7 @@ describe("buildReplicaZpl", () => {
   });
 
   it("centres the barcode across the label", () => {
-    expect(zpl).toContain("^FO45,20^BCN");
+    expect(zpl).toContain("^FO45,24^BCN");
   });
 
   it("prints the DIN, the flag characters, and the boxed check character", () => {
@@ -408,10 +408,13 @@ describe("the eye-readable line", () => {
       const boxLine = zpl.split("\n").find((line) => line.includes("^GB"))!;
       const boxTop = Number(/\^FO\d+,(\d+)/.exec(boxLine)![1]);
       const barcodeTop = Number(/\^FO\d+,(\d+)\^BCN/.exec(zpl)![1]);
-      expect(barcodeTop).toBe(20);
+      expect(barcodeTop).toBe(24);
       // ST-001 section 6.1.3: nothing prints in contact with the top or bottom of the bars.
       expect(boxTop).toBeGreaterThan(barcodeTop + BAR_HEIGHT_DOTS);
       expect(boxTop + 56).toBeLessThanOrEqual(LABEL_HEIGHT_DOTS);
+      // The content is centred: the space above the bars matches the space below the box
+      // to within a dot.
+      expect(Math.abs(barcodeTop - (LABEL_HEIGHT_DOTS - (boxTop + 56)))).toBeLessThanOrEqual(1);
     }
   });
 });

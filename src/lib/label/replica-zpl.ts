@@ -75,8 +75,12 @@ export const QUIET_ZONE_MIN_MODULES = 10;
  */
 export const BAR_HEIGHT_DOTS = 110;
 
-/** Distance from the top edge of the label to the top of the bars. */
-const BARCODE_TOP_DOTS = 20;
+/**
+ * Distance from the top edge of the label to the top of the bars. The bars, the gap, and
+ * the eye-readable line together are 176 dots tall, so 24 dots above them leaves 25 below
+ * and the content sits centred on the 225 dot label.
+ */
+const BARCODE_TOP_DOTS = 24;
 
 /**
  * Gap between the bottom of the bars and the top of the eye-readable line. ST-001 section
