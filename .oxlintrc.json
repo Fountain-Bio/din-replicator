@@ -2,5 +2,13 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "typescript", "import"],
   "categories": { "correctness": "error", "suspicious": "warn" },
+  "rules": {
+    // The app compiles JSX with the automatic runtime ("jsx": "react-jsx"), so
+    // a file that renders JSX does not import React.
+    "react/react-in-jsx-scope": "off",
+    // The app's stylesheet is pulled in for its side effect, which is the only
+    // way a bundler is told to include it.
+    "import/no-unassigned-import": ["warn", { "allow": ["**/*.css"] }]
+  },
   "ignorePatterns": ["dist", "src-tauri/target", "node_modules", "out"]
 }
