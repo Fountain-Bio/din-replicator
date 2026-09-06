@@ -1,22 +1,20 @@
 /**
- * Which printer replicas go to, whether the app asks for a verification scan,
- * how many replicas one print run may produce, how the printer marks the label
- * stock, which font the eye-readable line is set in, and where the print log
- * lives.
+ * Every choice the operator can make, arranged as a list of sections down the
+ * left and the chosen section's fields on the right.
  *
  * Every change is saved through `set_settings` as soon as it is made, so there
  * is no Save button to forget.
  *
- * The screen keeps one narrow column. Each group of settings is a titled
- * section with the same spacing, so an operator scanning down the page can
- * tell where one decision ends and the next begins.
+ * One screen used to hold all of this in a single column, which meant reading
+ * past the printer to reach the print log. The window is wider than it is
+ * tall, so the sections became a sidebar: the four groups stay in view, and
+ * only the fields of the group being changed take up height. The sidebar is a
+ * tab list, so the arrow keys move between sections.
  */
 
-import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
+import { RefreshCwIcon } from "lucide-react";
 import { connectionText, PrinterStatus } from "@/components/printer-status";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -29,18 +27,27 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BUNDLED_LABEL_FONTS, type LabelFont } from "@/lib/label/fonts";
 import {
   DARKNESS_MAX,
   DARKNESS_MIN,
   OFFSET_DOTS_MAX,
   OFFSET_DOTS_MIN,
+  PRINTER_DOTS_PER_INCH_CHOICES,
   SPEED_IPS_MAX,
   SPEED_IPS_MIN,
 } from "@/lib/label/replica-zpl";
 import { printLogUnavailableText } from "@/lib/print-log";
-import { clampWhole, SETTINGS_BOUNDS } from "@/lib/settings";
-import type { PrinterInfo, PrintMethod, Settings, StorageInfo } from "@/lib/tauri/types";
+import { SETTINGS_BOUNDS } from "@/lib/settings";
+import type {
+  PrinterDotsPerInch,
+  PrinterInfo,
+  PrintMethod,
+  Settings,
+  StorageInfo,
+} from "@/lib/tauri/types";
+import { NumberField } from "./number-field";
 
 export interface SettingsScreenProps {
   /** The saved choices, or null until they have been read. */
@@ -57,6 +64,14 @@ export interface SettingsScreenProps {
   onChange: (settings: Settings) => void;
   onRefreshPrinters: () => void;
 }
+
+/** The sections of the screen, in the order the sidebar lists them. */
+const SECTIONS = [
+  { id: "printer", label: "Printer" },
+  { id: "verification", label: "Verification and copies" },
+  { id: "advanced", label: "Advanced" },
+  { id: "print-log", label: "Print log" },
+] as const;
 
 /** How each printing method reads, and the one line that explains it. */
 const PRINT_METHODS: Array<{ value: PrintMethod; label: string; explanation: string }> = [
@@ -87,8 +102,7 @@ const LABEL_FONTS: Array<{ value: LabelFont; label: string; explanation: string 
   {
     value: "mono",
     label: BUNDLED_LABEL_FONTS.mono.displayName,
-    explanation:
-      "A sans serif face whose characters are all one width, so a DIN lines up column by column.",
+    explanation: "A face whose characters are all one width, so a DIN lines up column by column.",
   },
 ];
 
@@ -121,6 +135,126 @@ export function SettingsScreen({
     );
   }
 
+  return (
+    <Tabs
+      defaultValue={SECTIONS[0].id}
+      orientation="vertical"
+      className="h-full min-h-0 gap-6 sm:gap-8"
+    >
+      <TabsList
+        variant="default"
+        aria-label="Settings sections"
+        className="h-fit w-44 shrink-0 flex-col items-stretch gap-1 bg-transparent p-0 sm:w-52"
+      >
+        {SECTIONS.map((section) => (
+          <TabsTrigger
+            key={section.id}
+            value={section.id}
+            className="h-9 w-full flex-none justify-start rounded-md px-3 text-sm data-active:bg-muted"
+          >
+            {section.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+
+      {/* The pane scrolls on its own, so a long section never makes the window
+          scroll and the sidebar never leaves the screen. */}
+      <div className="@container min-w-0 flex-1 overflow-y-auto pb-8">
+        <div className="max-w-3xl">
+          <TabsContent value="printer">
+            <PrinterSection
+              settings={settings}
+              printers={printers}
+              loadingPrinters={loadingPrinters}
+              onChange={onChange}
+              onRefreshPrinters={onRefreshPrinters}
+            />
+          </TabsContent>
+
+          <TabsContent value="verification">
+            <VerificationSection settings={settings} onChange={onChange} />
+          </TabsContent>
+
+          <TabsContent value="advanced">
+            <AdvancedSection settings={settings} onChange={onChange} />
+          </TabsContent>
+
+          <TabsContent value="print-log">
+            <PrintLogSection storage={storage} storageError={storageError} />
+          </TabsContent>
+        </div>
+      </div>
+    </Tabs>
+  );
+}
+
+/** A section's heading, the line that says what it is for, and its fields. */
+function Section({
+  title,
+  description,
+  action,
+  children,
+}: {
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-6">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-3">
+          <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+          {action}
+        </div>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** One labelled control with the one line that explains it. */
+function Field({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id} className="text-sm font-normal">
+        {label}
+      </Label>
+      {children}
+      <p className="text-sm text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+/** The two-column grid the Advanced fields sit in once there is room for it. */
+function FieldGrid({ children }: { children: React.ReactNode }) {
+  return <div className="grid gap-x-8 gap-y-6 @lg:grid-cols-2">{children}</div>;
+}
+
+function PrinterSection({
+  settings,
+  printers,
+  loadingPrinters,
+  onChange,
+  onRefreshPrinters,
+}: {
+  settings: Settings;
+  printers: PrinterInfo[];
+  loadingPrinters: boolean;
+  onChange: (settings: Settings) => void;
+  onRefreshPrinters: () => void;
+}) {
   // Settings can name a printer the operating system no longer lists, which is
   // what a renamed or unplugged printer looks like from here.
   const chosenPrinter = printers.find((printer) => printer.name === settings.selectedPrinter);
@@ -131,29 +265,26 @@ export function SettingsScreen({
   const labelPrinters = printers.filter((printer) => printer.isZebra).sort(byName);
   const otherPrinters = printers.filter((printer) => !printer.isZebra).sort(byName);
 
-  const currentMethod =
-    PRINT_METHODS.find((method) => method.value === settings.printMethod) ?? PRINT_METHODS[0]!;
-  const currentFont =
-    LABEL_FONTS.find((font) => font.value === settings.labelFont) ?? LABEL_FONTS[0]!;
-
   return (
-    <div className="mx-auto flex w-full max-w-[44rem] flex-col gap-8 pb-12">
-      <Section
-        title="Printer"
-        description="Replicas go to this printer. Only a label printer prints them correctly."
-        action={
-          <Button variant="ghost" size="sm" onClick={onRefreshPrinters} disabled={loadingPrinters}>
-            <RefreshCwIcon className={loadingPrinters ? "animate-spin" : undefined} />
-            {loadingPrinters ? "Reading" : "Read again"}
-          </Button>
-        }
-      >
+    <Section
+      title="Printer"
+      description="Replicas go to this printer. Only a label printer prints them correctly."
+      action={
+        <Button variant="ghost" size="sm" onClick={onRefreshPrinters} disabled={loadingPrinters}>
+          <RefreshCwIcon className={loadingPrinters ? "animate-spin" : undefined} />
+          {loadingPrinters ? "Reading" : "Read again"}
+        </Button>
+      }
+    >
+      {/* The section heading already says what this picker is, so the picker
+          carries its name for a screen reader and no second heading on screen. */}
+      <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Select
             value={settings.selectedPrinter ?? ""}
             onValueChange={(name) => onChange({ ...settings, selectedPrinter: name })}
           >
-            <SelectTrigger id="printer" className="h-10 w-full max-w-sm">
+            <SelectTrigger id="printer" aria-label="Printer" className="h-10 w-full max-w-sm">
               <SelectValue placeholder="Choose a printer" />
             </SelectTrigger>
             <SelectContent>
@@ -181,28 +312,41 @@ export function SettingsScreen({
           </Select>
           {chosenPrinter !== undefined && <PrinterStatus state={chosenPrinter.state} />}
         </div>
+        <p className="text-sm text-muted-foreground">
+          Each printer is listed with how it is attached: USB, or the address it answers on.
+        </p>
+      </div>
 
-        {savedPrinterMissing && (
-          <p className="text-sm text-destructive">
-            The saved printer {settings.selectedPrinter} is not connected to this computer. Choose
-            another printer, or plug the saved one back in and read the list again.
-          </p>
-        )}
+      {savedPrinterMissing && (
+        <p className="text-sm text-destructive">
+          The saved printer {settings.selectedPrinter} is not connected to this computer. Choose
+          another printer, or plug the saved one back in and read the list again.
+        </p>
+      )}
 
-        {printers.length === 0 && !loadingPrinters && (
-          <p className="text-sm text-muted-foreground">
-            This computer has no printers installed. Add the label printer in the operating system's
-            printer settings first.
-          </p>
-        )}
-      </Section>
+      {printers.length === 0 && !loadingPrinters && (
+        <p className="text-sm text-muted-foreground">
+          This computer has no printers installed. Add the label printer in the operating system's
+          printer settings first.
+        </p>
+      )}
+    </Section>
+  );
+}
 
-      <Separator />
-
-      <Section
-        title="Verification"
-        description="The app compares the scan of a fresh replica against the barcode payload it printed, and writes the result to the print log."
-      >
+function VerificationSection({
+  settings,
+  onChange,
+}: {
+  settings: Settings;
+  onChange: (settings: Settings) => void;
+}) {
+  return (
+    <Section
+      title="Verification and copies"
+      description="What happens after a print run, and how many replicas one print run may produce."
+    >
+      <div className="flex flex-col gap-2">
         <Label
           htmlFor="verify"
           className="flex w-full items-center justify-between gap-6 text-sm font-normal"
@@ -214,275 +358,226 @@ export function SettingsScreen({
             onCheckedChange={(checked) => onChange({ ...settings, verifyAfterPrint: checked })}
           />
         </Label>
-      </Section>
+        <p className="text-sm text-muted-foreground">
+          The app compares the scan of a fresh replica against the barcode payload it printed, and
+          writes the result to the print log.
+        </p>
+      </div>
 
-      <Separator />
-
-      <Section
-        title="Copy count"
-        description={`The most replicas the scan screen lets one print run produce, up to ${SETTINGS_BOUNDS.maxCopies.max}.`}
-      >
-        <div className="flex items-center gap-3">
-          <Input
-            id="max-copies"
-            type="number"
-            inputMode="numeric"
-            min={SETTINGS_BOUNDS.maxCopies.min}
-            max={SETTINGS_BOUNDS.maxCopies.max}
-            value={settings.maxCopies}
-            className="h-10 w-24 text-base tabular-nums"
-            onChange={(event) =>
-              onChange({
-                ...settings,
-                maxCopies: clampWhole(
-                  Number(event.currentTarget.value),
-                  SETTINGS_BOUNDS.maxCopies.min,
-                  SETTINGS_BOUNDS.maxCopies.max,
-                ),
-              })
-            }
-          />
-          <Label htmlFor="max-copies" className="text-sm font-normal text-muted-foreground">
-            replicas per print run
-          </Label>
-        </div>
-      </Section>
-
-      <Separator />
-
-      {/* The three printing values match the label stock and the printer that
-          are already in use, so this section stays shut until someone has a
-          reason to open it. */}
-      <Collapsible className="group/printing">
-        <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-          <h2 className="text-base font-semibold tracking-tight">Printing</h2>
-          <ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]/printing:rotate-180" />
-          <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-            {currentMethod.label} · darkness {settings.darkness} · {settings.speedIps} ips ·{" "}
-            {currentFont.label}
-          </span>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="flex flex-col gap-6 pt-5">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="print-method" className="text-sm font-normal">
-              Print method
-            </Label>
-            <Select
-              value={settings.printMethod}
-              onValueChange={(value) =>
-                onChange({ ...settings, printMethod: value as PrintMethod })
-              }
-            >
-              <SelectTrigger id="print-method" className="h-10 w-full max-w-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PRINT_METHODS.map((method) => (
-                  <SelectItem key={method.value} value={method.value}>
-                    {method.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">{currentMethod.explanation}</p>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="label-font" className="text-sm font-normal">
-              Label font
-            </Label>
-            <Select
-              value={settings.labelFont}
-              onValueChange={(value) => onChange({ ...settings, labelFont: value as LabelFont })}
-            >
-              <SelectTrigger id="label-font" className="h-10 w-full max-w-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LABEL_FONTS.map((font) => (
-                  <SelectItem key={font.value} value={font.value}>
-                    {font.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">{currentFont.explanation}</p>
-            <p className="text-sm text-muted-foreground">
-              The eye-readable line under the barcode is set in this font. A replica in the printer
-              font matches its source label. The other two travel to the printer with each label and
-              are gone when it is switched off.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="darkness" className="text-sm font-normal">
-              Darkness
-            </Label>
-            <Input
-              id="darkness"
-              type="number"
-              inputMode="numeric"
-              min={DARKNESS_MIN}
-              max={DARKNESS_MAX}
-              value={settings.darkness}
-              className="h-10 w-24 text-base tabular-nums"
-              onChange={(event) =>
-                onChange({
-                  ...settings,
-                  darkness: clampWhole(
-                    Number(event.currentTarget.value),
-                    DARKNESS_MIN,
-                    DARKNESS_MAX,
-                  ),
-                })
-              }
-            />
-            <p className="text-sm text-muted-foreground">
-              {DARKNESS_MIN} to {DARKNESS_MAX}. Higher is darker. Raise it when replicas look faded.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="speed-ips" className="text-sm font-normal">
-              Speed
-            </Label>
-            <Input
-              id="speed-ips"
-              type="number"
-              inputMode="numeric"
-              min={SPEED_IPS_MIN}
-              max={SPEED_IPS_MAX}
-              value={settings.speedIps}
-              className="h-10 w-24 text-base tabular-nums"
-              onChange={(event) =>
-                onChange({
-                  ...settings,
-                  speedIps: clampWhole(
-                    Number(event.currentTarget.value),
-                    SPEED_IPS_MIN,
-                    SPEED_IPS_MAX,
-                  ),
-                })
-              }
-            />
-            <p className="text-sm text-muted-foreground">
-              Inches per second, {SPEED_IPS_MIN} to {SPEED_IPS_MAX}. Slower prints darker and
-              sharper.
-            </p>
-          </div>
-
-          {/* Where the printer puts the whole label, for a roll that sits a
-              little off in the printer. Neither number moves anything within
-              the label. */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="vertical-offset" className="text-sm font-normal">
-              Vertical position
-            </Label>
-            <Input
-              id="vertical-offset"
-              type="number"
-              inputMode="numeric"
-              min={OFFSET_DOTS_MIN}
-              max={OFFSET_DOTS_MAX}
-              value={settings.verticalOffsetDots}
-              className="h-10 w-24 text-base tabular-nums"
-              onChange={(event) =>
-                onChange({
-                  ...settings,
-                  verticalOffsetDots: clampWhole(
-                    Number(event.currentTarget.value),
-                    OFFSET_DOTS_MIN,
-                    OFFSET_DOTS_MAX,
-                  ),
-                })
-              }
-            />
-            <p className="text-sm text-muted-foreground">
-              Dots, {OFFSET_DOTS_MIN} to {OFFSET_DOTS_MAX}. A positive number moves what is printed
-              down the label. 12 dots is a millimetre.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="horizontal-offset" className="text-sm font-normal">
-              Horizontal position
-            </Label>
-            <Input
-              id="horizontal-offset"
-              type="number"
-              inputMode="numeric"
-              min={OFFSET_DOTS_MIN}
-              max={OFFSET_DOTS_MAX}
-              value={settings.horizontalOffsetDots}
-              className="h-10 w-24 text-base tabular-nums"
-              onChange={(event) =>
-                onChange({
-                  ...settings,
-                  horizontalOffsetDots: clampWhole(
-                    Number(event.currentTarget.value),
-                    OFFSET_DOTS_MIN,
-                    OFFSET_DOTS_MAX,
-                  ),
-                })
-              }
-            />
-            <p className="text-sm text-muted-foreground">
-              Dots, {OFFSET_DOTS_MIN} to {OFFSET_DOTS_MAX}. A positive number moves what is printed
-              to the right.
-            </p>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-
-      <Separator />
-
-      <footer className="flex flex-col gap-1.5 text-sm text-muted-foreground">
-        <span>Print log</span>
-        {storageError !== null ? (
-          <span className="text-destructive">
-            Where the print log lives could not be read. {storageError}
-          </span>
-        ) : storage === null ? (
-          <span>Reading where the print log lives</span>
-        ) : storage.unavailable !== null ? (
-          <span className="text-destructive">{printLogUnavailableText(storage.unavailable)}</span>
-        ) : (
-          <>
-            <span className="font-mono text-xs break-all">{storage.databasePath}</span>
-            <span>
-              {storage.machineWide
-                ? "Every login on this computer shares one history."
-                : "This history covers only the login you are using now. The app could not write to the machine-wide directory."}
-            </span>
-          </>
-        )}
-      </footer>
-    </div>
+      <NumberField
+        id="max-copies"
+        label="Largest copy count"
+        hint={`The most replicas the scan screen lets one print run produce, ${SETTINGS_BOUNDS.maxCopies.min} to ${SETTINGS_BOUNDS.maxCopies.max}.`}
+        value={settings.maxCopies}
+        min={SETTINGS_BOUNDS.maxCopies.min}
+        max={SETTINGS_BOUNDS.maxCopies.max}
+        onCommit={(maxCopies) => onChange({ ...settings, maxCopies })}
+      />
+    </Section>
   );
 }
 
-/** One group of settings: a title, a line saying what it is for, and controls. */
-function Section({
-  title,
-  description,
-  action,
-  children,
+function AdvancedSection({
+  settings,
+  onChange,
 }: {
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
+  settings: Settings;
+  onChange: (settings: Settings) => void;
+}) {
+  const currentMethod =
+    PRINT_METHODS.find((method) => method.value === settings.printMethod) ?? PRINT_METHODS[0]!;
+  const currentFont =
+    LABEL_FONTS.find((font) => font.value === settings.labelFont) ?? LABEL_FONTS[0]!;
+
+  return (
+    <Section
+      title="Advanced"
+      description="These match the printer and the label stock the app was built for. A change here takes effect on the next print run."
+    >
+      <FieldGrid>
+        <Field id="print-method" label="Print method" hint={currentMethod.explanation}>
+          <Select
+            value={settings.printMethod}
+            onValueChange={(value) => onChange({ ...settings, printMethod: value as PrintMethod })}
+          >
+            <SelectTrigger id="print-method" className="h-10 w-full max-w-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PRINT_METHODS.map((method) => (
+                <SelectItem key={method.value} value={method.value}>
+                  {method.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <Field
+          id="label-font"
+          label="Label font"
+          hint={`The eye-readable line under the barcode is set in this font. ${currentFont.explanation}`}
+        >
+          <Select
+            value={settings.labelFont}
+            onValueChange={(value) => onChange({ ...settings, labelFont: value as LabelFont })}
+          >
+            <SelectTrigger id="label-font" className="h-10 w-full max-w-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LABEL_FONTS.map((font) => (
+                <SelectItem key={font.value} value={font.value}>
+                  {font.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <NumberField
+          id="darkness"
+          label="Darkness"
+          hint={`${DARKNESS_MIN} to ${DARKNESS_MAX}. Higher is darker. Raise it when replicas look faded.`}
+          value={settings.darkness}
+          min={DARKNESS_MIN}
+          max={DARKNESS_MAX}
+          onCommit={(darkness) => onChange({ ...settings, darkness })}
+        />
+
+        <NumberField
+          id="speed-ips"
+          label="Speed"
+          hint={`Inches per second, ${SPEED_IPS_MIN} to ${SPEED_IPS_MAX}. Slower prints darker and sharper.`}
+          value={settings.speedIps}
+          min={SPEED_IPS_MIN}
+          max={SPEED_IPS_MAX}
+          onCommit={(speedIps) => onChange({ ...settings, speedIps })}
+        />
+
+        {/* Where the printer puts the whole label, for a roll that sits a
+            little off in the printer. Neither number moves anything within
+            the label. */}
+        <NumberField
+          id="vertical-offset"
+          label="Vertical position"
+          hint={`Dots, ${OFFSET_DOTS_MIN} to ${OFFSET_DOTS_MAX}. A positive number moves what is printed down the label. 12 dots is a millimetre.`}
+          value={settings.verticalOffsetDots}
+          min={OFFSET_DOTS_MIN}
+          max={OFFSET_DOTS_MAX}
+          onCommit={(verticalOffsetDots) => onChange({ ...settings, verticalOffsetDots })}
+        />
+
+        <NumberField
+          id="horizontal-offset"
+          label="Horizontal position"
+          hint={`Dots, ${OFFSET_DOTS_MIN} to ${OFFSET_DOTS_MAX}. A positive number moves what is printed to the right.`}
+          value={settings.horizontalOffsetDots}
+          min={OFFSET_DOTS_MIN}
+          max={OFFSET_DOTS_MAX}
+          onCommit={(horizontalOffsetDots) => onChange({ ...settings, horizontalOffsetDots })}
+        />
+      </FieldGrid>
+
+      <Separator />
+
+      <div className="flex flex-col gap-1.5">
+        <h3 className="text-sm font-semibold tracking-tight">Label stock</h3>
+        <p className="text-sm text-muted-foreground">
+          The size of one label on the roll and the resolution of the print head. Every dot on a
+          replica is worked out from these three numbers, so the scan screen's preview changes with
+          them.
+        </p>
+      </div>
+
+      <FieldGrid>
+        <NumberField
+          id="label-width"
+          label="Label width"
+          hint={`Inches across the label, ${SETTINGS_BOUNDS.labelWidthInches.min} to ${SETTINGS_BOUNDS.labelWidthInches.max}.`}
+          value={settings.labelWidthInches}
+          min={SETTINGS_BOUNDS.labelWidthInches.min}
+          max={SETTINGS_BOUNDS.labelWidthInches.max}
+          step={0.05}
+          decimals={2}
+          onCommit={(labelWidthInches) => onChange({ ...settings, labelWidthInches })}
+        />
+
+        <NumberField
+          id="label-height"
+          label="Label height"
+          hint={`Inches along the roll, ${SETTINGS_BOUNDS.labelHeightInches.min} to ${SETTINGS_BOUNDS.labelHeightInches.max}.`}
+          value={settings.labelHeightInches}
+          min={SETTINGS_BOUNDS.labelHeightInches.min}
+          max={SETTINGS_BOUNDS.labelHeightInches.max}
+          step={0.05}
+          decimals={2}
+          onCommit={(labelHeightInches) => onChange({ ...settings, labelHeightInches })}
+        />
+
+        <Field
+          id="printer-dpi"
+          label="Printer resolution"
+          hint="Dots per inch the print head lays down. It is printed on the printer, and a wrong number makes every replica the wrong size."
+        >
+          <Select
+            value={String(settings.printerDotsPerInch)}
+            onValueChange={(value) =>
+              onChange({
+                ...settings,
+                printerDotsPerInch: Number(value) as PrinterDotsPerInch,
+              })
+            }
+          >
+            <SelectTrigger id="printer-dpi" className="h-10 w-full max-w-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PRINTER_DOTS_PER_INCH_CHOICES.map((choice) => (
+                <SelectItem key={choice} value={String(choice)}>
+                  {choice} dpi
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      </FieldGrid>
+    </Section>
+  );
+}
+
+function PrintLogSection({
+  storage,
+  storageError,
+}: {
+  storage: StorageInfo | null;
+  storageError: string | null;
 }) {
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-3">
-          <h2 className="text-base font-semibold tracking-tight">{title}</h2>
-          {action}
+    <Section
+      title="Print log"
+      description="Every print run this machine records goes into one SQLite file. The history screen reads it."
+    >
+      {storageError !== null ? (
+        <p className="text-sm text-destructive">
+          Where the print log lives could not be read. {storageError}
+        </p>
+      ) : storage === null ? (
+        <p className="text-sm text-muted-foreground">Reading where the print log lives</p>
+      ) : storage.unavailable !== null ? (
+        <p className="text-sm text-destructive">{printLogUnavailableText(storage.unavailable)}</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <p className="font-mono text-xs break-all text-muted-foreground">
+            {storage.databasePath}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {storage.machineWide
+              ? "Every login on this computer shares one history."
+              : "This history covers only the login you are using now. The app could not write to the machine-wide directory."}
+          </p>
         </div>
-        <p className="max-w-prose text-sm text-muted-foreground">{description}</p>
-      </div>
-      {children}
-    </section>
+      )}
+    </Section>
   );
 }

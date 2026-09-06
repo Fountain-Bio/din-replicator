@@ -13,6 +13,7 @@ import { printerStateText } from "@/components/printer-status";
 import { barcodePayload } from "@/lib/isbt128";
 import { buildReplicaZpl, MAX_COPIES } from "@/lib/label/replica-zpl";
 import { printLogUnavailableText } from "@/lib/print-log";
+import { labelStock } from "@/lib/settings";
 import { asCommandError, printZpl, recordPrintRun, recordVerification } from "@/lib/tauri/commands";
 import type { PrinterState, Settings } from "@/lib/tauri/types";
 import { initialScanState, scanReducer, type ScanAction, type ScanState } from "./scan-state";
@@ -127,6 +128,7 @@ export function usePrintRun({
         horizontalOffsetDots: settings.horizontalOffsetDots,
       },
       labelFont: settings.labelFont,
+      stock: labelStock(settings),
     });
     dispatch({ type: "print-started" });
 

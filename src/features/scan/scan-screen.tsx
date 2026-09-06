@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import type { SelectedPrinter } from "@/features/printer/use-printers";
 import { barcodePayload, eyeReadable } from "@/lib/isbt128";
 import type { LabelFont } from "@/lib/label/fonts";
+import type { LabelStock } from "@/lib/label/replica-zpl";
 import { printLogUnavailableText } from "@/lib/print-log";
 import { CopyCount } from "./copy-count";
 import { LabelPreview } from "./label-preview";
@@ -40,6 +41,8 @@ export interface ScanScreenProps {
   printer: SelectedPrinter;
   /** The font the replica is set in, so the preview shows what will print. */
   labelFont: LabelFont;
+  /** The label stock in the printer. The preview is drawn at its shape. */
+  stock: LabelStock;
   /**
    * Why printing is off for a reason that has nothing to do with the printer,
    * or null when nothing blocks it. The print log being unreachable is the one
@@ -55,6 +58,7 @@ export function ScanScreen({
   dispatch,
   printer,
   labelFont,
+  stock,
   blockedReason,
   onPrint,
   onGoToSettings,
@@ -174,7 +178,7 @@ export function ScanScreen({
                 </div>
               </section>
 
-              <LabelPreview din={state.din} labelFont={labelFont} />
+              <LabelPreview din={state.din} labelFont={labelFont} stock={stock} />
             </div>
           )}
         </div>

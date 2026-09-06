@@ -6,6 +6,7 @@
  */
 
 import type { LabelFont } from "@/lib/label/fonts";
+import type { PrinterDotsPerInch } from "@/lib/label/replica-zpl";
 
 /**
  * Which font the eye-readable line on a replica is printed in. The label
@@ -13,6 +14,13 @@ import type { LabelFont } from "@/lib/label/fonts";
  * that uses them. Rust names the same three values.
  */
 export type { LabelFont };
+
+/**
+ * The print head resolutions a replica can be laid out for. The label module
+ * owns the list for the same reason it owns the fonts: it is what turns inches
+ * into dots. Rust names the same three numbers.
+ */
+export type { PrinterDotsPerInch };
 
 /** What the printer reports about itself right now. */
 export type PrinterState =
@@ -168,6 +176,12 @@ export interface Settings {
    * 300 dpi, from -100 to 100. Negative moves it left.
    */
   horizontalOffsetDots: number;
+  /** Width of one label in inches, across the direction the stock travels. */
+  labelWidthInches: number;
+  /** Height of one label in inches, along the direction the stock travels. */
+  labelHeightInches: number;
+  /** How many dots to the inch the print head lays down. */
+  printerDotsPerInch: PrinterDotsPerInch;
 }
 
 /** Where the print log lives on this machine, or why there is none. */

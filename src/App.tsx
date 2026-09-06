@@ -25,7 +25,9 @@ import { usePrintRun } from "@/features/scan/use-print-run";
 import { SettingsScreen } from "@/features/settings/settings-screen";
 import { useSettings } from "@/features/settings/use-settings";
 import { DEFAULT_LABEL_FONT } from "@/lib/label/fonts";
+import { DEFAULT_LABEL_STOCK } from "@/lib/label/replica-zpl";
 import { useScanListener } from "@/lib/scanner";
+import { labelStock } from "@/lib/settings";
 import { asCommandError, storageInfo } from "@/lib/tauri/commands";
 import type { StorageInfo } from "@/lib/tauri/types";
 
@@ -183,6 +185,7 @@ export default function App() {
               dispatch={dispatch}
               printer={selected}
               labelFont={settings?.labelFont ?? DEFAULT_LABEL_FONT}
+              stock={settings === null ? DEFAULT_LABEL_STOCK : labelStock(settings)}
               blockedReason={blockedReason}
               onPrint={print}
               onGoToSettings={() => setScreen("settings")}

@@ -19,10 +19,16 @@ import { DEFAULT_LABEL_FONT } from "@/lib/label/fonts";
 import {
   DARKNESS_MAX,
   DARKNESS_MIN,
+  DEFAULT_LABEL_STOCK,
   DEFAULT_PRINT_SETTINGS,
+  LABEL_HEIGHT_INCHES_MAX,
+  LABEL_HEIGHT_INCHES_MIN,
+  LABEL_WIDTH_INCHES_MAX,
+  LABEL_WIDTH_INCHES_MIN,
   MAX_COPIES,
   OFFSET_DOTS_MAX,
   OFFSET_DOTS_MIN,
+  PRINTER_DOTS_PER_INCH_CHOICES,
   SPEED_IPS_MAX,
   SPEED_IPS_MIN,
 } from "@/lib/label/replica-zpl";
@@ -73,6 +79,9 @@ let settings: Settings = {
   verifyAfterPrint: true,
   maxCopies: 20,
   labelFont: DEFAULT_LABEL_FONT,
+  labelWidthInches: DEFAULT_LABEL_STOCK.widthInches,
+  labelHeightInches: DEFAULT_LABEL_STOCK.heightInches,
+  printerDotsPerInch: DEFAULT_LABEL_STOCK.dotsPerInch,
   ...DEFAULT_PRINT_SETTINGS,
 };
 
@@ -281,7 +290,16 @@ function findPrinter(name: string): PrinterInfo {
  * the app.
  */
 function checkSettings(chosen: Settings): void {
-  const { maxCopies, darkness, speedIps, verticalOffsetDots, horizontalOffsetDots } = chosen;
+  const {
+    maxCopies,
+    darkness,
+    speedIps,
+    verticalOffsetDots,
+    horizontalOffsetDots,
+    labelWidthInches,
+    labelHeightInches,
+    printerDotsPerInch,
+  } = chosen;
   if (maxCopies < 1) {
     reject("invalid_input", "the largest copy count must be at least 1");
   }
@@ -304,6 +322,24 @@ function checkSettings(chosen: Settings): void {
     if (offset < OFFSET_DOTS_MIN || offset > OFFSET_DOTS_MAX) {
       reject("invalid_input", `${name} must be from ${OFFSET_DOTS_MIN} to ${OFFSET_DOTS_MAX} dots`);
     }
+  }
+  if (labelWidthInches < LABEL_WIDTH_INCHES_MIN || labelWidthInches > LABEL_WIDTH_INCHES_MAX) {
+    reject(
+      "invalid_input",
+      `the label width must be from ${LABEL_WIDTH_INCHES_MIN} to ${LABEL_WIDTH_INCHES_MAX} inches`,
+    );
+  }
+  if (labelHeightInches < LABEL_HEIGHT_INCHES_MIN || labelHeightInches > LABEL_HEIGHT_INCHES_MAX) {
+    reject(
+      "invalid_input",
+      `the label height must be from ${LABEL_HEIGHT_INCHES_MIN} to ${LABEL_HEIGHT_INCHES_MAX} inches`,
+    );
+  }
+  if (!PRINTER_DOTS_PER_INCH_CHOICES.includes(printerDotsPerInch)) {
+    reject(
+      "invalid_input",
+      `the printer resolution must be ${PRINTER_DOTS_PER_INCH_CHOICES.join(", ")} dots per inch`,
+    );
   }
 }
 
