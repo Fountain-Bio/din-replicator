@@ -97,9 +97,6 @@ export function LabelPreview({ din }: { din: string }) {
 
   return (
     <figure className="flex w-full max-w-60 flex-col gap-2 @4xl:max-w-[19rem]">
-      <figcaption className="text-sm text-muted-foreground">
-        The replica as it will print
-      </figcaption>
       {/* The frame carries the label stock's own proportion, 1.75 by 0.75
           inches, so what is on screen is the shape that comes off the roll. */}
       <div className="flex aspect-7/3 w-full items-center justify-center overflow-hidden rounded-md border bg-white p-2">
