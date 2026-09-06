@@ -5,17 +5,17 @@
  * two in step: a field renamed in Rust has to be renamed here as well.
  */
 
-/** What the print queue reports about a printer right now. */
+/** What the printer reports about itself right now. */
 export type PrinterState =
-  /** The queue takes jobs and the printer reports no fault. */
+  /** The printer takes jobs and reports no fault. */
   | { kind: "ready" }
-  /** Someone stopped the queue. A job sent now would wait instead of print. */
+  /** Someone stopped the printer. A job sent now would wait instead of print. */
   | { kind: "paused" }
-  /** The queue cannot reach the printer. */
+  /** The operating system cannot reach the printer. */
   | { kind: "offline" }
   /** The printer reports a fault. `detail` is one of the fault names below. */
   | { kind: "error"; detail: string }
-  /** The queue answered in a form the app does not recognise. */
+  /** The printer answered in a form the app does not recognise. */
   | { kind: "unknown" };
 
 /**
@@ -31,18 +31,22 @@ export const PRINTER_FAULT = {
 
 /** One printer as the operating system lists it. */
 export interface PrinterInfo {
-  /** The queue name. Every other printer call takes this string. */
+  /** The printer's name. Every other printer call takes this string. */
   name: string;
-  /** What the queue says the printer is. Can be empty. */
+  /** What the operating system says the printer is. Can be empty. */
   description: string;
-  /** True when the name or the description names Zebra or the ZD411 model. */
+  /**
+   * True when the operating system's name or description for this printer says
+   * it is the label printer model the app prints replicas on. The UI puts
+   * these first and marks them, because a replica only comes out right on one.
+   */
   isZebra: boolean;
   state: PrinterState;
 }
 
-/** What the queue gave back after it took a print run. */
+/** What the operating system gave back after it took a print run. */
 export interface PrintReceipt {
-  /** The queue's own job identifier. Some queues do not report one. */
+  /** The operating system's own job identifier. Not every printer reports one. */
   jobId: string | null;
 }
 
@@ -65,7 +69,7 @@ export interface PrintRun {
   payload: string;
   /** Copy count: how many replicas this print run produced. */
   copies: number;
-  /** The queue name the print run went to. */
+  /** The name of the printer the print run went to. */
   printerName: string;
   jobId: string | null;
   /** The operating system user name of the operator. */
@@ -107,7 +111,7 @@ export interface PrintRunQuery {
 
 /** The operator's saved choices. */
 export interface Settings {
-  /** The queue name replicas go to, or null when nobody has chosen one. */
+  /** The name of the printer replicas go to, or null when nobody has chosen one. */
   selectedPrinter: string | null;
   /** True when the app asks for a verification scan after every print run. */
   verifyAfterPrint: boolean;
@@ -115,15 +119,24 @@ export interface Settings {
   maxCopies: number;
 }
 
-/** Where the print log lives on this machine. */
+/** Where the print log lives on this machine, or why there is none. */
 export interface StorageInfo {
-  /** Full path of the SQLite file that holds the print log. */
-  databasePath: string;
+  /**
+   * Full path of the SQLite file that holds the print log. Null when the app
+   * has no log at all.
+   */
+  databasePath: string | null;
   /**
    * True when the file sits in a machine-wide directory, so every login on
    * this computer sees the same history. ADR 0004 explains why that matters.
    */
   machineWide: boolean;
+  /**
+   * Null while the print log works. Otherwise the reason it could not be
+   * opened, in words the UI shows as they are. A print run that cannot be
+   * recorded must not happen, so the app refuses to print while this is set.
+   */
+  unavailable: string | null;
 }
 
 /**

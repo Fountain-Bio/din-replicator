@@ -63,25 +63,12 @@ export function asCommandError(error: unknown): CommandError {
   return { code: "unknown", message: String(error) };
 }
 
-/**
- * Every printer installed on this machine, with its current state.
- *
- * The printer transport in Rust serialises its structs with their Rust field
- * names, so `is_zebra` and `job_id` arrive in snake case while the print log
- * commands use camel case. Both spellings are read here so the UI sees one
- * shape whichever way the Rust side settles.
- */
-export async function listPrinters(): Promise<PrinterInfo[]> {
-  const rows = await call<Array<Record<string, unknown>>>("list_printers");
-  return rows.map((row) => ({
-    name: String(row.name ?? ""),
-    description: String(row.description ?? ""),
-    isZebra: Boolean(row.isZebra ?? row.is_zebra),
-    state: row.state as PrinterState,
-  }));
+/** Every printer installed on this machine, with its current state. */
+export function listPrinters(): Promise<PrinterInfo[]> {
+  return call<PrinterInfo[]>("list_printers");
 }
 
-/** The state of one printer, read fresh from the print queue. */
+/** The state of one printer, read fresh from the operating system. */
 export function printerState(name: string): Promise<PrinterState> {
   return call<PrinterState>("printer_state", { name });
 }
@@ -89,14 +76,12 @@ export function printerState(name: string): Promise<PrinterState> {
 /**
  * Sends one print run's ZPL to a printer.
  *
- * `title` is the job name the operating system's print queue window shows.
- * The Rust command reads the queue first and rejects the call when the printer
- * is not ready, so a replica never sits in a stopped queue.
+ * `title` is the job name the operating system's printer window shows. The
+ * Rust command reads the printer's state first and rejects the call when the
+ * printer is not ready, so a replica never sits waiting on a stopped printer.
  */
-export async function printZpl(name: string, zpl: string, title: string): Promise<PrintReceipt> {
-  const receipt = await call<Record<string, unknown>>("print_zpl", { name, zpl, title });
-  const jobId = receipt.jobId ?? receipt.job_id;
-  return { jobId: typeof jobId === "string" ? jobId : null };
+export function printZpl(name: string, zpl: string, title: string): Promise<PrintReceipt> {
+  return call<PrintReceipt>("print_zpl", { name, zpl, title });
 }
 
 /** Writes one print run to the print log and returns the stored row. */
@@ -129,7 +114,7 @@ export function setSettings(settings: Settings): Promise<Settings> {
   return call<Settings>("set_settings", { settings });
 }
 
-/** Where the print log lives on this machine. */
+/** Where the print log lives on this machine, or why there is none. */
 export function storageInfo(): Promise<StorageInfo> {
   return call<StorageInfo>("storage_info");
 }

@@ -24,10 +24,18 @@ import type { ScanAction, ScanState } from "./scan-state";
 export interface ScanScreenProps {
   state: ScanState;
   dispatch: (action: ScanAction) => void;
-  /** The printer replicas go to, or null when settings name none. */
+  /** The name settings hold, whether or not that printer is installed. */
+  selectedPrinterName: string | null;
+  /** The chosen printer, or null when settings name none or name a missing one. */
   printer: PrinterInfo | null;
-  /** The printer's state, read fresh from the queue, or null while it loads. */
+  /** The printer's state, read fresh, or null while it loads. */
   printerState: PrinterState | null;
+  /**
+   * Why printing is off for a reason that has nothing to do with the printer,
+   * or null when nothing blocks it. The print log being unreachable is the one
+   * case: a print run that cannot be recorded must not happen.
+   */
+  blockedReason: string | null;
   onPrint: () => void;
   onGoToSettings: () => void;
 }
@@ -42,8 +50,10 @@ const NOTICE_CLASS = {
 export function ScanScreen({
   state,
   dispatch,
+  selectedPrinterName,
   printer,
   printerState,
+  blockedReason,
   onPrint,
   onGoToSettings,
 }: ScanScreenProps) {
@@ -51,8 +61,12 @@ export function ScanScreen({
 
   const eye = state.din === null ? null : eyeReadable(state.din);
   const printerReady = printerState !== null && printerState.kind === "ready";
+  // The screen only takes a print run, a copy count, or a clear while it is
+  // idle. The keyboard shortcuts in App follow the same rule.
+  const idle = state.phase.kind === "idle";
   const printing = state.phase.kind === "printing";
   const verifying = state.phase.kind === "verifying";
+  const canPrint = idle && printerReady && blockedReason === null;
 
   function submitTypedDin() {
     if (typedDin.trim().length === 0) {
@@ -64,7 +78,21 @@ export function ScanScreen({
 
   return (
     <div className="flex flex-col gap-6">
-      <PrinterLine printer={printer} state={printerState} onGoToSettings={onGoToSettings} />
+      <PrinterLine
+        selectedName={selectedPrinterName}
+        printer={printer}
+        state={printerState}
+        onGoToSettings={onGoToSettings}
+      />
+
+      {blockedReason !== null && (
+        <p
+          role="status"
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-base text-destructive"
+        >
+          Printing is disabled because the print log cannot be opened: {blockedReason}
+        </p>
+      )}
 
       {state.notice !== null && (
         <p
@@ -114,7 +142,7 @@ export function ScanScreen({
             <CopyCount
               value={state.copies}
               max={state.maxCopies}
-              disabled={printing}
+              disabled={!idle}
               onChange={(copies) => dispatch({ type: "set-copies", copies })}
             />
 
@@ -122,7 +150,7 @@ export function ScanScreen({
               <Button
                 size="lg"
                 className="h-14 px-8 text-lg"
-                disabled={printing || !printerReady}
+                disabled={!canPrint}
                 onClick={onPrint}
               >
                 <PrinterIcon className="size-5" />
@@ -138,7 +166,7 @@ export function ScanScreen({
                 Clear
               </Button>
             </div>
-            {!printerReady && (
+            {idle && !printerReady && blockedReason === null && (
               <p className="text-sm text-muted-foreground">
                 Printing is off until the printer is ready.
               </p>
@@ -195,22 +223,36 @@ function ReadyPrompt() {
   );
 }
 
-/** The printer replicas go to, with what the print queue says about it. */
+/**
+ * The printer replicas go to, with what it reports about itself.
+ *
+ * Two things can be wrong before a printer's state matters. Nobody has chosen
+ * a printer, which a new machine starts out as. Or settings hold a name that
+ * the operating system no longer lists, which is what a renamed or unplugged
+ * printer looks like. The two need different wording, because only the second
+ * one means something changed.
+ */
 function PrinterLine({
+  selectedName,
   printer,
   state,
   onGoToSettings,
 }: {
+  selectedName: string | null;
   printer: PrinterInfo | null;
   state: PrinterState | null;
   onGoToSettings: () => void;
 }) {
   if (printer === null) {
     return (
-      <div className="flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3">
-        <p className="text-base text-destructive">No printer is chosen yet.</p>
+      <div className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3">
+        <p className="text-base text-destructive">
+          {selectedName === null
+            ? "No printer is chosen yet."
+            : `The saved printer ${selectedName} is not connected to this computer.`}
+        </p>
         <Button variant="outline" size="sm" onClick={onGoToSettings}>
-          Choose a printer
+          {selectedName === null ? "Choose a printer" : "Choose another printer"}
         </Button>
       </div>
     );
@@ -221,7 +263,7 @@ function PrinterLine({
       <PrinterIcon className="size-4 text-muted-foreground" />
       <span className="text-base font-medium">{printer.name}</span>
       {state === null ? (
-        <span className="text-sm text-muted-foreground">Reading the print queue</span>
+        <span className="text-sm text-muted-foreground">Reading the printer</span>
       ) : (
         <PrinterStateBadge state={state} />
       )}

@@ -1,22 +1,22 @@
 /**
- * Says in plain words what a print queue is doing. The scan screen and the
+ * Says in plain words what a printer is doing. The scan screen and the
  * settings screen both show this, so the wording is written once here.
  */
 
 import { Badge } from "@/components/ui/badge";
 import { PRINTER_FAULT, type PrinterState } from "@/lib/tauri/types";
 
-/** The reason a print queue gives, as a sentence fragment an operator can act on. */
+/** What the printer reports, as a sentence an operator can act on. */
 export function printerStateText(state: PrinterState): string {
   switch (state.kind) {
     case "ready":
       return "Ready";
     case "paused":
-      return "Paused. Start the queue in the operating system's printer settings.";
+      return "Paused. Start the printer in the operating system's printer settings.";
     case "offline":
       return "Offline. Check the USB cable and the power switch.";
     case "unknown":
-      return "State unknown. The print queue answered in a form this app does not recognise.";
+      return "State unknown. The printer answered in a form this app does not recognise.";
     case "error":
       switch (state.detail) {
         case PRINTER_FAULT.mediaEmpty:

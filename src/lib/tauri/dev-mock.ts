@@ -25,7 +25,7 @@ import type {
 /** Two printers, so the settings screen has something to choose between. */
 const printers: PrinterInfo[] = [
   {
-    name: "Zebra_ZD411",
+    name: "Label_Printer_Front_Desk",
     description: "ZDesigner ZD411-300dpi ZPL",
     isZebra: true,
     state: { kind: "ready" },
@@ -44,10 +44,26 @@ let settings: Settings = {
   maxCopies: 20,
 };
 
-const storage: StorageInfo = {
-  databasePath: "/Users/Shared/DIN Replicator/print-log.sqlite3",
-  machineWide: true,
-};
+/**
+ * Add `?log=broken` to the address to see what the screens do when the print
+ * log cannot be opened. Printing is refused in that state, and there is no
+ * other way to reach it without breaking a real machine's disk.
+ */
+const brokenLog =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("log") === "broken";
+
+const storage: StorageInfo = brokenLog
+  ? {
+      databasePath: null,
+      machineWide: false,
+      unavailable: "the folder /Users/Shared/DIN Replicator is read only",
+    }
+  : {
+      databasePath: "/Users/Shared/DIN Replicator/print-log.sqlite3",
+      machineWide: true,
+      unavailable: null,
+    };
 
 /** Print runs recorded since the page loaded, newest last. */
 const printRuns: PrintRun[] = [];
@@ -66,7 +82,7 @@ function findPrinter(name: string): PrinterInfo {
   return printer;
 }
 
-/** How a print queue state reads in the sentence a `printer_not_ready` error uses. */
+/** How a printer's state reads in the sentence a `printer_not_ready` error uses. */
 function describeState(state: PrinterState): string {
   switch (state.kind) {
     case "ready":
@@ -86,7 +102,7 @@ function describeState(state: PrinterState): string {
  * Answers one command the way the Rust side would.
  *
  * The delay is there so the screens spend a moment in their loading states,
- * which is how they behave against a real print queue.
+ * which is how they behave against a real printer.
  */
 export async function mockInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((resolve) => setTimeout(resolve, 120));
@@ -114,6 +130,9 @@ function runCommand(command: string, args: Record<string, unknown>): unknown {
     }
 
     case "record_print_run": {
+      if (storage.unavailable !== null) {
+        reject("storage_unavailable", storage.unavailable);
+      }
       const input = args.input as PrintRunInput;
       const run: PrintRun = {
         id: nextPrintRunId,

@@ -109,15 +109,9 @@ export function LabelPreview({ din }: { din: string }) {
           <img src={imageUrl} alt={`Replica label for ${din}`} className="max-h-full max-w-full" />
         )}
       </div>
-      {/*
-        zebrash 1.0.3 keeps encoding in Code 128 subset B where the printer
-        switches to subset C, so the preview draws a wider barcode than the
-        printer produces. The measurement here is the printed width.
-      */}
       {plan.ok && (
         <p className="text-xs text-muted-foreground">
-          The preview draws the barcode wider than it prints. On the printer the symbol is{" "}
-          {plan.symbolWidthMm.toFixed(1)} mm wide.
+          On the printer the barcode is {plan.symbolWidthMm.toFixed(1)} mm wide.
         </p>
       )}
     </div>

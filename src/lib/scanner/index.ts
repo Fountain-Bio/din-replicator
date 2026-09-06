@@ -7,6 +7,8 @@ export {
   BURST_GAP_MS,
   BURST_RESET_MS,
   EMPTY_BURST,
+  flushBurst,
+  MAX_BURST_LENGTH,
   MIN_BURST_LENGTH,
   stepBurst,
   type BurstKey,

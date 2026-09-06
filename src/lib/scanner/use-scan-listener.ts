@@ -6,10 +6,14 @@
  * so the app cannot rely on a focused input to receive a scan. This hook
  * listens on the window instead and uses the speed test in `burst.ts` to tell
  * a scan from typing.
+ *
+ * A scanner configured with no suffix key ends its scan by stopping. The timer
+ * here covers that: every character arms it, and it fires once the silence has
+ * passed `BURST_RESET_MS`.
  */
 
 import { useEffect, useRef } from "react";
-import { EMPTY_BURST, stepBurst, type BurstState } from "./burst";
+import { BURST_RESET_MS, EMPTY_BURST, flushBurst, stepBurst, type BurstState } from "./burst";
 
 /**
  * Marks an element whose ordinary typing belongs to the element alone.
@@ -60,7 +64,11 @@ function keepsItsOwnKeys(target: EventTarget | null): boolean {
  * and dispatching an `input` event is what makes React see the change and run
  * its `onChange`.
  */
-function removeBurstText(field: HTMLInputElement | HTMLTextAreaElement, burst: string): void {
+function takeBackBurstText(target: EventTarget | null, burst: string): void {
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+    return;
+  }
+  const field = target;
   if (!field.value.endsWith(burst)) {
     return;
   }
@@ -103,35 +111,70 @@ export function useScanListener(
     }
 
     let burst: BurstState = EMPTY_BURST;
+    let flushTimer: ReturnType<typeof setTimeout> | undefined;
+    // Where the characters of the burst being collected are landing, so they
+    // can be taken back out of it once the burst turns out to be a scan.
+    let burstTarget: EventTarget | null = null;
+
+    function armFlush() {
+      clearTimeout(flushTimer);
+      flushTimer = setTimeout(() => {
+        const collected = burst.buffer;
+        const target = burstTarget;
+        // The timer was armed to fire one reset window after the last key, so
+        // that is the moment the silence reached its length. Using it instead
+        // of the clock keeps the decision free of timer drift.
+        const flushed = flushBurst(burst, burst.lastKeyAt + BURST_RESET_MS);
+        burst = flushed.state;
+        if (flushed.scan !== null) {
+          takeBackBurstText(target, collected);
+          onScanRef.current(flushed.scan);
+        }
+      }, BURST_RESET_MS);
+    }
 
     function handleKeyDown(event: KeyboardEvent) {
       // A shortcut such as Ctrl+C is never part of a scan and never a screen
       // key, so it goes to the browser untouched.
       if (event.ctrlKey || event.metaKey || event.altKey) {
+        clearTimeout(flushTimer);
         burst = EMPTY_BURST;
+        burstTarget = null;
         return;
       }
 
-      const step = stepBurst(burst, { key: event.key, at: event.timeStamp });
       const collected = burst.buffer;
+      const collectedTarget = burstTarget;
+      const step = stepBurst(burst, { key: event.key, at: event.timeStamp });
       burst = step.state;
+      clearTimeout(flushTimer);
+
+      // A buffer that is one character long restarted on this key, so it
+      // belongs to whatever has focus now. A longer one kept the element its
+      // first character went to.
+      burstTarget =
+        burst.buffer.length === 0
+          ? null
+          : burst.buffer.length === 1
+            ? event.target
+            : collectedTarget;
+      if (burst.buffer.length > 0) {
+        armFlush();
+      }
 
       switch (step.outcome.kind) {
         case "collecting":
           return;
 
-        case "scan": {
-          // Swallow the Enter so a form under the scanner does not submit as
-          // well, and take the label contents back out of whatever field they
-          // landed in.
-          event.preventDefault();
-          const target = event.target;
-          if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-            removeBurstText(target, collected);
+        case "scan":
+          if (step.outcome.consumedKey) {
+            // Swallow the suffix key so a form under the scanner does not
+            // submit and focus does not move on.
+            event.preventDefault();
           }
+          takeBackBurstText(collectedTarget, collected);
           onScanRef.current(step.outcome.scan);
           return;
-        }
 
         case "loose":
           if (!keepsItsOwnKeys(event.target)) {
@@ -142,6 +185,9 @@ export function useScanListener(
     }
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      clearTimeout(flushTimer);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [enabled]);
 }

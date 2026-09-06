@@ -3,6 +3,8 @@ import {
   BURST_GAP_MS,
   BURST_RESET_MS,
   EMPTY_BURST,
+  flushBurst,
+  MAX_BURST_LENGTH,
   MIN_BURST_LENGTH,
   stepBurst,
   type BurstOutcome,
@@ -32,18 +34,29 @@ function type(
 /** The compliant barcode payload for a sample DIN. */
 const PAYLOAD = "=W48362600001100";
 
+/** How fast a wedge scanner sends its characters. */
+const SCANNER_GAP_MS = 4;
+
 describe("stepBurst", () => {
   it("reports a scan when a fast burst ends in Enter", () => {
-    const typed = type(PAYLOAD, 4);
-    const ended = stepBurst(typed.state, { key: "Enter", at: 1000 + PAYLOAD.length * 4 });
+    const typed = type(PAYLOAD, SCANNER_GAP_MS);
+    const ended = stepBurst(typed.state, { key: "Enter", at: typed.state.lastKeyAt + 4 });
 
-    expect(ended.outcome).toEqual({ kind: "scan", scan: PAYLOAD });
+    expect(ended.outcome).toEqual({ kind: "scan", scan: PAYLOAD, consumedKey: true });
+    expect(ended.state).toEqual(EMPTY_BURST);
+  });
+
+  it("reports a scan when a fast burst ends in Tab", () => {
+    const typed = type(PAYLOAD, SCANNER_GAP_MS);
+    const ended = stepBurst(typed.state, { key: "Tab", at: typed.state.lastKeyAt + 4 });
+
+    expect(ended.outcome).toEqual({ kind: "scan", scan: PAYLOAD, consumedKey: true });
     expect(ended.state).toEqual(EMPTY_BURST);
   });
 
   it("ignores the same characters typed at human speed", () => {
     const typed = type(PAYLOAD, 120);
-    const ended = stepBurst(typed.state, { key: "Enter", at: 1000 + PAYLOAD.length * 120 });
+    const ended = stepBurst(typed.state, { key: "Enter", at: typed.state.lastKeyAt + 120 });
 
     expect(ended.outcome).toEqual({ kind: "loose" });
   });
@@ -52,8 +65,8 @@ describe("stepBurst", () => {
     const short = "1234";
     expect(short.length).toBeLessThan(MIN_BURST_LENGTH);
 
-    const typed = type(short, 4);
-    const ended = stepBurst(typed.state, { key: "Enter", at: 1000 + short.length * 4 });
+    const typed = type(short, SCANNER_GAP_MS);
+    const ended = stepBurst(typed.state, { key: "Enter", at: typed.state.lastKeyAt + 4 });
 
     expect(ended.outcome).toEqual({ kind: "loose" });
   });
@@ -62,31 +75,23 @@ describe("stepBurst", () => {
     const typed = type(PAYLOAD, BURST_GAP_MS);
     const ended = stepBurst(typed.state, {
       key: "Enter",
-      at: 1000 + PAYLOAD.length * BURST_GAP_MS,
+      at: typed.state.lastKeyAt + BURST_GAP_MS,
     });
 
-    expect(ended.outcome).toEqual({ kind: "scan", scan: PAYLOAD });
+    expect(ended.outcome).toEqual({ kind: "scan", scan: PAYLOAD, consumedKey: true });
   });
 
   it("stops treating a burst as a scan after one slow gap in the middle", () => {
-    const first = type("=W483", 4);
-    const resumed = type("62600001100", 4, first.state, first.state.lastKeyAt + BURST_GAP_MS + 1);
+    const first = type("=W483", SCANNER_GAP_MS);
+    const resumed = type(
+      "62600001100",
+      SCANNER_GAP_MS,
+      first.state,
+      first.state.lastKeyAt + BURST_GAP_MS + 1,
+    );
     const ended = stepBurst(resumed.state, { key: "Enter", at: resumed.state.lastKeyAt + 4 });
 
     expect(ended.outcome).toEqual({ kind: "loose" });
-  });
-
-  it("throws the buffer away after a long pause and starts again", () => {
-    const abandoned = type("=W48", 4);
-    const restarted = type(
-      PAYLOAD,
-      4,
-      abandoned.state,
-      abandoned.state.lastKeyAt + BURST_RESET_MS + 1,
-    );
-    const ended = stepBurst(restarted.state, { key: "Enter", at: restarted.state.lastKeyAt + 4 });
-
-    expect(ended.outcome).toEqual({ kind: "scan", scan: PAYLOAD });
   });
 
   it("keeps characters that arrive within the reset window but not at scanner speed", () => {
@@ -97,14 +102,14 @@ describe("stepBurst", () => {
   });
 
   it("reports the first character of a burst as loose so the screen can act on it", () => {
-    const typed = type(PAYLOAD, 4);
+    const typed = type(PAYLOAD, SCANNER_GAP_MS);
 
     expect(typed.outcomes[0]).toEqual({ kind: "loose" });
     expect(typed.outcomes[1]).toEqual({ kind: "collecting" });
   });
 
   it("throws the buffer away when a key that is not a character arrives", () => {
-    const typed = type(PAYLOAD, 4);
+    const typed = type(PAYLOAD, SCANNER_GAP_MS);
     const escaped = stepBurst(typed.state, { key: "Escape", at: typed.state.lastKeyAt + 4 });
 
     expect(escaped.state).toEqual(EMPTY_BURST);
@@ -112,7 +117,7 @@ describe("stepBurst", () => {
   });
 
   it("ignores an Enter that arrives long after the last character", () => {
-    const typed = type(PAYLOAD, 4);
+    const typed = type(PAYLOAD, SCANNER_GAP_MS);
     const ended = stepBurst(typed.state, { key: "Enter", at: typed.state.lastKeyAt + 5000 });
 
     expect(ended.outcome).toEqual({ kind: "loose" });
@@ -120,9 +125,103 @@ describe("stepBurst", () => {
 
   it("reports a scan for the legacy 15-character form as well", () => {
     const legacy = "=W483626000011N";
-    const typed = type(legacy, 4);
+    const typed = type(legacy, SCANNER_GAP_MS);
     const ended = stepBurst(typed.state, { key: "Enter", at: typed.state.lastKeyAt + 4 });
 
-    expect(ended.outcome).toEqual({ kind: "scan", scan: legacy });
+    expect(ended.outcome).toEqual({ kind: "scan", scan: legacy, consumedKey: true });
+  });
+
+  it("ends an unsuffixed scan when the next burst starts after the silence", () => {
+    const first = type(PAYLOAD, SCANNER_GAP_MS);
+    const next = stepBurst(first.state, {
+      key: "=",
+      at: first.state.lastKeyAt + BURST_RESET_MS + 1,
+    });
+
+    // The key that arrived starts the next burst rather than ending this one,
+    // so the caller must let it through to the page.
+    expect(next.outcome).toEqual({ kind: "scan", scan: PAYLOAD, consumedKey: false });
+    expect(next.state.buffer).toBe("=");
+    expect(next.state.atScannerSpeed).toBe(true);
+  });
+
+  it("reads two unsuffixed scans in a row", () => {
+    const second = "=W48362600002300";
+
+    const first = type(PAYLOAD, SCANNER_GAP_MS);
+    const firstEnd = flushBurst(first.state, first.state.lastKeyAt + BURST_RESET_MS);
+    expect(firstEnd.scan).toBe(PAYLOAD);
+
+    const secondTyped = type(second, SCANNER_GAP_MS, firstEnd.state, first.state.lastKeyAt + 400);
+    const secondEnd = flushBurst(secondTyped.state, secondTyped.state.lastKeyAt + BURST_RESET_MS);
+
+    expect(secondEnd.scan).toBe(second);
+    expect(secondEnd.state).toEqual(EMPTY_BURST);
+  });
+
+  it("reads two suffixed scans in a row", () => {
+    const second = "=W48362600002300";
+
+    const first = type(PAYLOAD, SCANNER_GAP_MS);
+    const firstEnd = stepBurst(first.state, { key: "Enter", at: first.state.lastKeyAt + 4 });
+    expect(firstEnd.outcome).toEqual({ kind: "scan", scan: PAYLOAD, consumedKey: true });
+
+    const secondTyped = type(second, SCANNER_GAP_MS, firstEnd.state, first.state.lastKeyAt + 30);
+    const secondEnd = stepBurst(secondTyped.state, {
+      key: "Enter",
+      at: secondTyped.state.lastKeyAt + 4,
+    });
+
+    expect(secondEnd.outcome).toEqual({ kind: "scan", scan: second, consumedKey: true });
+  });
+
+  it("stops the buffer growing when a key repeats at scanner speed", () => {
+    const held = "x".repeat(MAX_BURST_LENGTH + 40);
+    const typed = type(held, SCANNER_GAP_MS);
+
+    expect(typed.state.buffer.length).toBe(MAX_BURST_LENGTH);
+    expect(typed.state.atScannerSpeed).toBe(false);
+
+    const ended = stepBurst(typed.state, { key: "Enter", at: typed.state.lastKeyAt + 4 });
+    expect(ended.outcome).toEqual({ kind: "loose" });
+  });
+
+  it("stops the buffer growing while a person types", () => {
+    const typed = type("y".repeat(MAX_BURST_LENGTH + 40), BURST_RESET_MS - 1);
+
+    expect(typed.state.buffer.length).toBe(MAX_BURST_LENGTH);
+    expect(typed.state.atScannerSpeed).toBe(false);
+  });
+});
+
+describe("flushBurst", () => {
+  it("ends a scan that arrived with no suffix key", () => {
+    const typed = type(PAYLOAD, SCANNER_GAP_MS);
+    const flushed = flushBurst(typed.state, typed.state.lastKeyAt + BURST_RESET_MS);
+
+    expect(flushed.scan).toBe(PAYLOAD);
+    expect(flushed.state).toEqual(EMPTY_BURST);
+  });
+
+  it("leaves the burst alone while the silence is still short", () => {
+    const typed = type(PAYLOAD, SCANNER_GAP_MS);
+    const flushed = flushBurst(typed.state, typed.state.lastKeyAt + BURST_RESET_MS - 1);
+
+    expect(flushed.scan).toBeNull();
+    expect(flushed.state).toEqual(typed.state);
+  });
+
+  it("does not turn typing into a scan", () => {
+    const typed = type(PAYLOAD, 120);
+    const flushed = flushBurst(typed.state, typed.state.lastKeyAt + BURST_RESET_MS);
+
+    expect(flushed.scan).toBeNull();
+  });
+
+  it("does not turn a short burst into a scan", () => {
+    const typed = type("1234", SCANNER_GAP_MS);
+    const flushed = flushBurst(typed.state, typed.state.lastKeyAt + BURST_RESET_MS);
+
+    expect(flushed.scan).toBeNull();
   });
 });

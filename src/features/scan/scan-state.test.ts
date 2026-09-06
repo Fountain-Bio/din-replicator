@@ -167,6 +167,54 @@ describe("scanReducer", () => {
     });
   });
 
+  it("warns and records nothing when the labels printed but the log refused", () => {
+    const state = run(
+      [
+        { type: "set-copies", copies: 3 },
+        { type: "print-started" },
+        { type: "print-not-recorded", reason: "the print log cannot be opened" },
+      ],
+      loaded(),
+    );
+
+    expect(state.notice).toEqual({
+      tone: "error",
+      text: "The label printed but the print run was not recorded: the print log cannot be opened. Do not print again until storage is fixed.",
+    });
+    // There is no print run to verify against, so no verification is asked for.
+    expect(state.phase).toEqual({ kind: "idle" });
+    expect(state.pendingVerification).toBeNull();
+  });
+
+  it("keeps the DIN and the copy count after a print run went unrecorded", () => {
+    const state = run(
+      [
+        { type: "set-copies", copies: 4 },
+        { type: "print-started" },
+        { type: "print-not-recorded", reason: "the disk is full" },
+      ],
+      loaded(),
+    );
+
+    expect(state.din).toBe(DIN);
+    expect(state.copies).toBe(4);
+  });
+
+  it("takes a new scan after a print run went unrecorded", () => {
+    const other = "W483626000023";
+    const state = run(
+      [
+        { type: "print-started" },
+        { type: "print-not-recorded", reason: "the disk is full" },
+        { type: "scanned", raw: other },
+      ],
+      loaded(),
+    );
+
+    expect(state.din).toBe(other);
+    expect(state.notice).toBeNull();
+  });
+
   it("ignores a scan that arrives while a print run is in flight", () => {
     const printing = run([{ type: "print-started" }], loaded());
     const state = scanReducer(printing, { type: "scanned", raw: "=W48362600002300" });

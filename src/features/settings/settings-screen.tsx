@@ -6,7 +6,6 @@
  * is no Save button to forget.
  */
 
-import { useEffect, useState } from "react";
 import { RefreshCwIcon } from "lucide-react";
 import { PrinterStateBadge } from "@/components/printer-state-badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +19,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MAX_COPIES } from "@/lib/label/replica-zpl";
-import { asCommandError, storageInfo } from "@/lib/tauri/commands";
 import type { PrinterInfo, Settings, StorageInfo } from "@/lib/tauri/types";
 
 export interface SettingsScreenProps {
@@ -28,6 +26,10 @@ export interface SettingsScreenProps {
   printers: PrinterInfo[];
   /** True while the printer list is being read from the operating system. */
   loadingPrinters: boolean;
+  /** Where the print log lives, or null while that is still being read. */
+  storage: StorageInfo | null;
+  /** Why the print log could not be asked at all, or null when it answered. */
+  storageError: string | null;
   onChange: (settings: Settings) => void;
   onRefreshPrinters: () => void;
 }
@@ -36,30 +38,16 @@ export function SettingsScreen({
   settings,
   printers,
   loadingPrinters,
+  storage,
+  storageError,
   onChange,
   onRefreshPrinters,
 }: SettingsScreenProps) {
-  const [storage, setStorage] = useState<StorageInfo | null>(null);
-  const [storageError, setStorageError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    storageInfo().then(
-      (info) => {
-        if (!cancelled) {
-          setStorage(info);
-        }
-      },
-      (reason: unknown) => {
-        if (!cancelled) {
-          setStorageError(asCommandError(reason).message);
-        }
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Settings can name a printer the operating system no longer lists, which is
+  // what a renamed or unplugged printer looks like from here.
+  const savedPrinterMissing =
+    settings.selectedPrinter !== null &&
+    !printers.some((printer) => printer.name === settings.selectedPrinter);
 
   return (
     <div className="flex max-w-2xl flex-col gap-8">
@@ -74,7 +62,7 @@ export function SettingsScreen({
           </Button>
         </div>
         <p className="text-sm text-muted-foreground">
-          Replicas go to this print queue. Only a Zebra prints them correctly.
+          Replicas go to this printer. Only a label printer prints them correctly.
         </p>
         <Select
           value={settings.selectedPrinter ?? ""}
@@ -87,16 +75,23 @@ export function SettingsScreen({
             {printers.map((printer) => (
               <SelectItem key={printer.name} value={printer.name}>
                 {printer.name}
-                {printer.isZebra ? " (Zebra)" : ""}
+                {printer.isZebra ? " (label printer)" : ""}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
+        {savedPrinterMissing && (
+          <p className="text-sm text-destructive">
+            The saved printer {settings.selectedPrinter} is not connected to this computer. Choose
+            another printer, or plug the saved one back in and read the list again.
+          </p>
+        )}
+
         {printers.length === 0 && !loadingPrinters && (
           <p className="text-sm text-muted-foreground">
-            This machine has no printers installed. Add the Zebra in the operating system's printer
-            settings first.
+            This computer has no printers installed. Add the label printer in the operating system's
+            printer settings first.
           </p>
         )}
 
@@ -166,6 +161,10 @@ export function SettingsScreen({
           </p>
         ) : storage === null ? (
           <p className="text-sm text-muted-foreground">Reading where the print log lives</p>
+        ) : storage.unavailable !== null ? (
+          <p className="text-sm text-destructive">
+            Printing is disabled because the print log cannot be opened: {storage.unavailable}
+          </p>
         ) : (
           <>
             <p className="font-mono text-sm break-all text-muted-foreground">

@@ -69,7 +69,13 @@ export type ScanAction =
   /** Clear button or Escape: go back to waiting for a scan. */
   | { type: "clear" }
   | { type: "print-started" }
+  /** Nothing reached the printer, so no replica came out. */
   | { type: "print-failed"; message: string }
+  /**
+   * The replicas printed but the print log would not take the print run. The
+   * labels exist and nothing recorded them.
+   */
+  | { type: "print-not-recorded"; reason: string }
   | {
       type: "print-succeeded";
       printRunId: number;
@@ -250,6 +256,19 @@ export function scanReducer(state: ScanState, action: ScanAction): ScanState {
         ...state,
         phase: { kind: "idle" },
         notice: { tone: "error", text: action.message },
+      };
+
+    case "print-not-recorded":
+      // There is no print run id, so there is nothing a verification scan
+      // could be attached to. The screen goes straight back to idle and warns
+      // that the count of printed replicas is now wrong.
+      return {
+        ...state,
+        phase: { kind: "idle" },
+        notice: {
+          tone: "error",
+          text: `The label printed but the print run was not recorded: ${action.reason}. Do not print again until storage is fixed.`,
+        },
       };
 
     case "print-succeeded": {
