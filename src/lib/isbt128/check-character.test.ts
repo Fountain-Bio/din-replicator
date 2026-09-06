@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkCharacter } from "./check-character";
 
 /**
- * Every vector below is published by ICCBBA, except the last two, which come
+ * Every vector here is published by ICCBBA, except the last two, which come
  * from a sample label scanned from a production system and from a second DIN
  * in the same set.
  */

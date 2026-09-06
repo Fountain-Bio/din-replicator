@@ -99,11 +99,6 @@ export function listPrintRuns(query: PrintRunQuery = {}): Promise<PrintRun[]> {
   return call<PrintRun[]>("list_print_runs", { query });
 }
 
-/** One print run from the log. */
-export function getPrintRun(id: number): Promise<PrintRun> {
-  return call<PrintRun>("get_print_run", { id });
-}
-
 /** The operator's saved choices. */
 export function getSettings(): Promise<Settings> {
   return call<Settings>("get_settings");

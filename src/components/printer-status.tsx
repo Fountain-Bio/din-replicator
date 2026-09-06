@@ -56,11 +56,6 @@ function printerStateSummary(state: PrinterState): string {
   }
 }
 
-/** True when a print run may be sent to a printer in this state. */
-function isReady(state: PrinterState): boolean {
-  return state.kind === "ready";
-}
-
 export interface PrinterStatusProps {
   /** The printer's state, or null while the app is still asking for it. */
   state: PrinterState | null;
@@ -77,7 +72,7 @@ export interface PrinterStatusProps {
  * an operator passes over every minute.
  */
 export function PrinterStatus({ state, className }: PrinterStatusProps) {
-  const ready = state !== null && isReady(state);
+  const ready = state !== null && state.kind === "ready";
   const text = state === null ? "Reading the printer" : printerStateSummary(state);
 
   return (

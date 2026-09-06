@@ -106,7 +106,7 @@ export function dinText(din: string): string {
 }
 
 /** The sentence that names what a scan held when it was not a DIN. */
-export function notDinMessage(reason: NotDinReason): string {
+function notDinMessage(reason: NotDinReason): string {
   switch (reason) {
     case "empty":
       return "The scan was empty. Scan the DIN barcode again.";
@@ -272,7 +272,7 @@ export function scanReducer(state: ScanState, action: ScanAction): ScanState {
       };
 
     case "print-succeeded": {
-      // Q8: the DIN stays on the screen after a print run, so an operator who
+      // The DIN stays on the screen after a print run, so an operator who
       // needs a few more replicas presses Print again instead of rescanning.
       const din = state.din;
       if (din === null) {

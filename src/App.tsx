@@ -64,7 +64,7 @@ export default function App() {
   const selectedPrinterName = settings?.selectedPrinter ?? null;
   const selectedPrinter = printers.find((printer) => printer.name === selectedPrinterName) ?? null;
   // A printer that is no longer chosen has no state worth showing, and the
-  // poll below leaves its last answer behind when it stops.
+  // poll that reads it leaves its last answer behind when it stops.
   const shownPrinterState = selectedPrinterName === null ? null : selectedPrinterState;
   // The print log is the one thing outside the printer that stops a print run.
   const blockedReason = storage?.unavailable ?? null;

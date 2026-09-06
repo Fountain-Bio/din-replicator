@@ -13,7 +13,7 @@ export type PrinterState =
   | { kind: "paused" }
   /** The operating system cannot reach the printer. */
   | { kind: "offline" }
-  /** The printer reports a fault. `detail` is one of the fault names below. */
+  /** The printer reports a fault. `detail` is one of the `PRINTER_FAULT` names. */
   | { kind: "error"; detail: string }
   /** The printer answered in a form the app does not recognise. */
   | { kind: "unknown" };

@@ -325,7 +325,7 @@ export function replicaLabelGeometry(din: string, flags?: string): ReplicaLabelG
   const right = LABEL_WIDTH_DOTS - left - symbolWidthDots;
   const quietZoneDots = Math.min(left, right);
 
-  // The choice above should already guarantee this. Check it anyway, because a barcode with
+  // `chooseModuleWidthDots` should already guarantee this. Check it anyway, because a barcode with
   // too little white space beside it can fail to scan without looking wrong on the label.
   if (quietZoneDots < QUIET_ZONE_MIN_MODULES * moduleDots) {
     throw new Error(

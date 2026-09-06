@@ -10,6 +10,7 @@
  * with no Tauri host, so a production bundle never contains it.
  */
 
+import { FALLBACK_SETTINGS } from "@/lib/settings";
 import type {
   PrinterInfo,
   PrinterState,
@@ -53,14 +54,7 @@ const printers: PrinterInfo[] = [
   },
 ];
 
-let settings: Settings = {
-  selectedPrinter: null,
-  verifyAfterPrint: true,
-  maxCopies: 20,
-  printMethod: "thermalTransfer",
-  darkness: 16,
-  speedIps: 3,
-};
+let settings: Settings = { ...FALLBACK_SETTINGS };
 
 /**
  * Add `?log=broken` to the address to see what the screens do when the print
@@ -93,11 +87,11 @@ let nextPrintRunId = 1;
  * The DINs, the operators, and the computer names are made up. They exist so
  * the history screen can be exercised with more rows than one page holds, with
  * a verification that passed, one that failed, and print runs nobody verified.
+ * Every one of them went to the label printer.
  */
 const SEED_PRINT_RUNS: Array<{
   din: string;
   copies: number;
-  printerName: string;
   operatorUser: string;
   hostname: string;
   /** How many minutes before the page loaded this print run happened. */
@@ -107,7 +101,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "W483626000011",
     copies: 2,
-    printerName: printers[0]!.name,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 4,
@@ -116,7 +109,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "W483626000010",
     copies: 1,
-    printerName: printers[0]!.name,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 21,
@@ -125,7 +117,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "W483626000009",
     copies: 4,
-    printerName: printers[0]!.name,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 55,
@@ -134,7 +125,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "G112625904418",
     copies: 1,
-    printerName: printers[0]!.name,
     operatorUser: "j.lindqvist",
     hostname: "collection-room-2",
     minutesAgo: 140,
@@ -143,7 +133,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "G112625904417",
     copies: 3,
-    printerName: printers[0]!.name,
     operatorUser: "j.lindqvist",
     hostname: "collection-room-2",
     minutesAgo: 168,
@@ -152,7 +141,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "W483626000008",
     copies: 1,
-    printerName: printers[0]!.name,
     operatorUser: "j.lindqvist",
     hostname: "collection-room-2",
     minutesAgo: 1_500,
@@ -161,7 +149,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "W483626000007",
     copies: 12,
-    printerName: printers[0]!.name,
     operatorUser: "a.mendes",
     hostname: "front-desk-1",
     minutesAgo: 1_620,
@@ -170,7 +157,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "N902625000442",
     copies: 2,
-    printerName: printers[0]!.name,
     operatorUser: "a.mendes",
     hostname: "front-desk-1",
     minutesAgo: 1_705,
@@ -179,7 +165,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "N902625000441",
     copies: 1,
-    printerName: printers[0]!.name,
     operatorUser: "a.mendes",
     hostname: "front-desk-1",
     minutesAgo: 2_880,
@@ -188,7 +173,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "N902625000440",
     copies: 6,
-    printerName: printers[0]!.name,
     operatorUser: "a.mendes",
     hostname: "front-desk-1",
     minutesAgo: 2_950,
@@ -197,7 +181,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "W483625998201",
     copies: 1,
-    printerName: printers[0]!.name,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 4_320,
@@ -206,7 +189,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "W483625998200",
     copies: 2,
-    printerName: printers[0]!.name,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 4_400,
@@ -215,7 +197,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "G112625903990",
     copies: 1,
-    printerName: printers[0]!.name,
     operatorUser: "j.lindqvist",
     hostname: "front-desk-1",
     minutesAgo: 5_760,
@@ -224,7 +205,6 @@ const SEED_PRINT_RUNS: Array<{
   {
     din: "G112625903989",
     copies: 8,
-    printerName: printers[0]!.name,
     operatorUser: "j.lindqvist",
     hostname: "front-desk-1",
     minutesAgo: 5_900,
@@ -241,7 +221,7 @@ for (const seed of [...SEED_PRINT_RUNS].reverse()) {
     din: seed.din,
     payload: `=${seed.din}00`,
     copies: seed.copies,
-    printerName: seed.printerName,
+    printerName: printers[0]!.name,
     jobId: `mock-${nextPrintRunId}`,
     operatorUser: seed.operatorUser,
     hostname: seed.hostname,
@@ -366,14 +346,6 @@ function runCommand(command: string, args: Record<string, unknown>): unknown {
       const offset = query.offset ?? 0;
       const limit = query.limit ?? matching.length;
       return matching.slice(offset, offset + limit);
-    }
-
-    case "get_print_run": {
-      const run = printRuns.find((candidate) => candidate.id === args.id);
-      if (run === undefined) {
-        reject("print_run_not_found", `no print run has id ${String(args.id)}`);
-      }
-      return run;
     }
 
     case "get_settings":

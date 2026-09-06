@@ -6,13 +6,20 @@
  * nothing to go on: the saved settings could not be read at all.
  */
 
+import {
+  DARKNESS_MAX,
+  DARKNESS_MIN,
+  DEFAULT_PRINT_SETTINGS,
+  SPEED_IPS_MAX,
+  SPEED_IPS_MIN,
+} from "@/lib/label/replica-zpl";
 import type { Settings } from "@/lib/tauri/types";
 
 /** The heat the printer applies, lowest and highest the printer accepts. */
-export const DARKNESS_RANGE = { min: 0, max: 30 } as const;
+export const DARKNESS_RANGE = { min: DARKNESS_MIN, max: DARKNESS_MAX } as const;
 
 /** How fast a label leaves the printer, in inches per second. */
-export const SPEED_IPS_RANGE = { min: 2, max: 6 } as const;
+export const SPEED_IPS_RANGE = { min: SPEED_IPS_MIN, max: SPEED_IPS_MAX } as const;
 
 /**
  * What the app uses when the saved settings cannot be read.
@@ -25,9 +32,7 @@ export const FALLBACK_SETTINGS: Settings = {
   selectedPrinter: null,
   verifyAfterPrint: true,
   maxCopies: 20,
-  printMethod: "thermalTransfer",
-  darkness: 16,
-  speedIps: 3,
+  ...DEFAULT_PRINT_SETTINGS,
 };
 
 /** Keeps a number inside a range, rounded to a whole number. */

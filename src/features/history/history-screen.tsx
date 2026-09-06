@@ -176,8 +176,8 @@ export function HistoryScreen({ onPrintAgain }: HistoryScreenProps) {
 
       {/* The plain table element rather than the shadcn Table wrapper, because
           that wrapper adds its own horizontal scroll box, and a sticky heading
-          row cannot stick inside one. A fixed layout with the widths below
-          means the row never needs to scroll sideways in the first place. */}
+          row cannot stick inside one. A fixed layout with the `COLUMN_LAYOUT`
+          widths means the row never needs to scroll sideways in the first place. */}
       <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
         <table className="w-full table-fixed border-collapse text-sm">
           <colgroup>
