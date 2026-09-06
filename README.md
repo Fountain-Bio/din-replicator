@@ -4,6 +4,16 @@ A desktop app that scans an ISBT 128 Donation Identification Number (DIN) label 
 
 An operator opens the app, scans a DIN label, chooses how many replicas to print, and presses Print. The app shows a preview of the exact label before it prints. After printing, the operator can scan one of the new labels to verify it. Every print run is recorded in a local database and can be found again by DIN.
 
+## Screens
+
+The scan screen waits for a barcode. A DIN can also be typed.
+
+![The scan screen, waiting for a DIN](docs/screenshots/scan-ready.png)
+
+A scanned DIN shows its eye-readable form, its flag characters and check character, the barcode payload, and a preview of the replica. The operator picks a copy count and prints.
+
+![A loaded DIN with its preview and the Print button](docs/screenshots/scan-loaded.png)
+
 ## What it prints
 
 The replica is a DIN label that follows ICCBBA ST-001, the ISBT 128 Standard Technical Specification:
