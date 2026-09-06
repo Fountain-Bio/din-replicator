@@ -234,3 +234,13 @@ Windows SDK, so the Windows installer is only ever signed on the Windows runner.
 - The build action: <https://github.com/tauri-apps/tauri-action>
 - Azure Artifact Signing setup: <https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart>
 - Azure Artifact Signing roles: <https://learn.microsoft.com/en-us/azure/artifact-signing/tutorial-assign-roles>
+
+## The release token
+
+The organization sets GitHub Actions tokens to read-only, so the workflow cannot create a release with the built-in token. Create a fine-grained personal access token at https://github.com/settings/personal-access-tokens/new with access to this repository only and the permission Contents: Read and write, then store it:
+
+```
+gh secret set RELEASE_TOKEN --repo Fountain-Bio/din-replicator --body "<token>"
+```
+
+Renew it before it expires; GitHub emails the owner a week ahead.

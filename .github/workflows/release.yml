@@ -39,6 +39,12 @@
 #   AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE
 #     Name of the certificate profile inside that account.
 #
+# GitHub. The organization sets workflow tokens to read-only, so the built-in GITHUB_TOKEN
+# cannot create the draft release or upload to it.
+#   RELEASE_TOKEN
+#     A fine-grained personal access token limited to this repository with Contents: Read and
+#     write. The release job uses it in place of GITHUB_TOKEN when it exists.
+#
 # Sources for the steps below:
 #   https://v2.tauri.app/distribute/sign/macos/
 #   https://v2.tauri.app/distribute/sign/windows/
@@ -132,7 +138,7 @@ jobs:
       - name: Build and attach the DMG
         uses: tauri-apps/tauri-action@action-v1.0.0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           # APPLE_SIGNING_IDENTITY comes from the certificate import step. The bundler reads
           # the notarization credentials only after it has signed something, so leaving them
           # empty on an unsigned build changes nothing.
@@ -209,7 +215,7 @@ jobs:
       - name: Build and attach the installer
         uses: tauri-apps/tauri-action@action-v1.0.0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           # artifact-signing-cli reads the credentials and the account and certificate profile
           # names from the environment. The endpoint has no environment fallback in the tool,
           # so signCommand passes it as `-e %AZURE_ARTIFACT_SIGNING_ENDPOINT%` and lets cmd.exe
