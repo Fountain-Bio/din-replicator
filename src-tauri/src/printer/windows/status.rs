@@ -8,7 +8,7 @@
 //! at compile time that the copies still match, so the Windows build fails if
 //! they ever drift.
 
-use super::{fault, PrinterState};
+use crate::printer::{fault, PrinterState};
 
 /// An operator or the system paused the queue.
 pub const PRINTER_STATUS_PAUSED: u32 = 0x0000_0001;

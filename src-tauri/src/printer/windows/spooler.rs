@@ -1,37 +1,35 @@
-//! The Windows print path.
+//! The Win32 calls behind the Windows print path.
 //!
-//! ADR 0003 rules out taking the USB device away from the Zebra driver, so
-//! this module goes through the Windows spooler. It reads the queues with
+//! This is the only file in the app that calls Win32. It reads the queues with
 //! `EnumPrintersW` and submits a job with the `RAW` datatype, which is what
-//! makes the spooler hand the ZPL to the printer untouched.
-//!
-//! Only this file makes Win32 calls. The flag mapping it uses lives in
-//! [`super::spooler_status`] so that it can be tested on any platform.
+//! makes the spooler hand the ZPL to the printer untouched. The flag mapping
+//! it uses lives in [`super::status`] so that it can be tested on any
+//! platform.
 
 use std::ffi::c_void;
 
-use windows::core::{HRESULT, PCWSTR, PWSTR};
-use windows::Win32::Graphics::Printing::{
+use ::windows::core::{HRESULT, PCWSTR, PWSTR};
+use ::windows::Win32::Graphics::Printing::{
     ClosePrinter, EndDocPrinter, EndPagePrinter, EnumPrintersW, GetPrinterW, OpenPrinterW,
     StartDocPrinterW, StartPagePrinter, WritePrinter, DOC_INFO_1W, PRINTER_ENUM_CONNECTIONS,
     PRINTER_ENUM_LOCAL, PRINTER_HANDLE, PRINTER_INFO_2W,
 };
 
-use super::spooler_status::{self, state_from_flags};
-use super::{PrintReceipt, PrinterError, PrinterInfo, PrinterState, PrinterTransport};
+use super::status::{self, state_from_flags};
+use crate::printer::{PrintReceipt, PrinterError, PrinterInfo, PrinterState, PrinterTransport};
 
-/// The flag values that `spooler_status` keeps its own copies of must stay
+/// The flag values that `status` keeps its own copies of must stay
 /// equal to the ones the `windows` crate defines. These fail the build if a
 /// crate update ever changes them.
 const _: () = {
-    use windows::Win32::Graphics::Printing as win;
-    assert!(spooler_status::PRINTER_STATUS_PAUSED == win::PRINTER_STATUS_PAUSED);
-    assert!(spooler_status::PRINTER_STATUS_ERROR == win::PRINTER_STATUS_ERROR);
-    assert!(spooler_status::PRINTER_STATUS_PAPER_JAM == win::PRINTER_STATUS_PAPER_JAM);
-    assert!(spooler_status::PRINTER_STATUS_PAPER_OUT == win::PRINTER_STATUS_PAPER_OUT);
-    assert!(spooler_status::PRINTER_STATUS_OFFLINE == win::PRINTER_STATUS_OFFLINE);
-    assert!(spooler_status::PRINTER_STATUS_DOOR_OPEN == win::PRINTER_STATUS_DOOR_OPEN);
-    assert!(spooler_status::PRINTER_ATTRIBUTE_WORK_OFFLINE == win::PRINTER_ATTRIBUTE_WORK_OFFLINE);
+    use ::windows::Win32::Graphics::Printing as win;
+    assert!(status::PRINTER_STATUS_PAUSED == win::PRINTER_STATUS_PAUSED);
+    assert!(status::PRINTER_STATUS_ERROR == win::PRINTER_STATUS_ERROR);
+    assert!(status::PRINTER_STATUS_PAPER_JAM == win::PRINTER_STATUS_PAPER_JAM);
+    assert!(status::PRINTER_STATUS_PAPER_OUT == win::PRINTER_STATUS_PAPER_OUT);
+    assert!(status::PRINTER_STATUS_OFFLINE == win::PRINTER_STATUS_OFFLINE);
+    assert!(status::PRINTER_STATUS_DOOR_OPEN == win::PRINTER_STATUS_DOOR_OPEN);
+    assert!(status::PRINTER_ATTRIBUTE_WORK_OFFLINE == win::PRINTER_ATTRIBUTE_WORK_OFFLINE);
 };
 
 /// `HRESULT_FROM_WIN32(ERROR_INVALID_PRINTER_NAME)`. The spooler returns this
@@ -131,17 +129,32 @@ impl PrinterTransport for Spooler {
 
 /// Writes the whole of `bytes` to an open job as one page.
 ///
-/// `WritePrinter` may take fewer bytes than it is offered, so the loop keeps
-/// going until the spooler has taken all of them.
-///
-/// A failure part way through leaves the page open. The caller ends the
-/// document straight afterwards, which is what discards the half written page.
+/// Every page that is started is also ended, on the failure paths as well as
+/// the good one, the same way `print_raw` always ends the document. A page
+/// left open holds the job. When the write and the page end both fail, the
+/// error from the write is the one reported, because that is the one that says
+/// what went wrong first.
 fn write_document(handle: PRINTER_HANDLE, bytes: &[u8]) -> Result<(), PrinterError> {
     // SAFETY: the handle is open and a document is started on it.
     unsafe { StartPagePrinter(handle) }
         .ok()
         .map_err(|error| PrinterError::SpoolFailed(error.message()))?;
 
+    let written = write_page(handle, bytes);
+
+    // SAFETY: the handle is open and a page is started on it.
+    let ended = unsafe { EndPagePrinter(handle) }
+        .ok()
+        .map_err(|error| PrinterError::SpoolFailed(error.message()));
+
+    written.and(ended)
+}
+
+/// Hands `bytes` to the spooler for the page that is currently open.
+///
+/// `WritePrinter` may take fewer bytes than it is offered, so the loop keeps
+/// going until the spooler has taken all of them.
+fn write_page(handle: PRINTER_HANDLE, bytes: &[u8]) -> Result<(), PrinterError> {
     let mut sent = 0usize;
     while sent < bytes.len() {
         let chunk = &bytes[sent..];
@@ -161,11 +174,6 @@ fn write_document(handle: PRINTER_HANDLE, bytes: &[u8]) -> Result<(), PrinterErr
         }
         sent += taken as usize;
     }
-
-    // SAFETY: the handle is open and a page is started on it.
-    unsafe { EndPagePrinter(handle) }
-        .ok()
-        .map_err(|error| PrinterError::SpoolFailed(error.message()))?;
     Ok(())
 }
 
@@ -188,7 +196,7 @@ fn printer_info(info: &PRINTER_INFO_2W) -> PrinterInfo {
     };
 
     PrinterInfo {
-        is_zebra: super::looks_like_zebra(&[&name, &description, &driver]),
+        is_zebra: crate::printer::looks_like_zebra(&[&name, &description, &driver]),
         state: state_from_flags(info.Status, info.Attributes),
         name,
         description,
@@ -331,5 +339,5 @@ unsafe fn read_wide(text: PWSTR) -> String {
 
 /// The message for whatever the last Win32 call on this thread failed with.
 fn last_error() -> String {
-    windows::core::Error::from_thread().message()
+    ::windows::core::Error::from_thread().message()
 }

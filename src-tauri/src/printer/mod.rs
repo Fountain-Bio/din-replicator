@@ -13,12 +13,15 @@ use std::fmt;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
-pub mod spooler_status;
-
+// Platform code lives in a directory named for the platform.
 #[cfg(target_os = "macos")]
-mod cups;
-#[cfg(target_os = "windows")]
-mod spooler;
+mod macos;
+
+// The Windows module is declared on every platform, and gates its own Win32
+// half. The other half is the status-flag mapping, which is plain arithmetic
+// and is tested wherever the app is built. Declaring the module publicly is
+// what makes that mapping reachable on macOS.
+pub mod windows;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 compile_error!("DIN Replicator prints through the macOS CUPS queue or the Windows spooler, so it builds only for those two platforms.");
@@ -48,7 +51,7 @@ pub mod fault {
 pub enum PrinterState {
     /// The queue takes jobs and the printer reports no fault.
     Ready,
-    /// Someone stopped the queue. A job sent now would wait instead of print.
+    /// Someone stopped the queue. A job sent now would sit in it and wait.
     Paused,
     /// The queue cannot reach the printer.
     Offline,
@@ -101,7 +104,7 @@ pub enum PrinterError {
     #[error("no printer named \"{0}\" is installed on this machine")]
     PrinterNotFound(String),
     /// The queue exists but is in a state that would leave a replica sitting
-    /// in the queue. ADR 0003 says the app refuses the print run instead.
+    /// in the queue. ADR 0003 says the app refuses the print run.
     #[error("the printer is {0}, so nothing was sent to it")]
     PrinterNotReady(PrinterState),
     /// Asking the operating system for the list of printers, or for one
@@ -152,6 +155,12 @@ pub trait PrinterTransport {
     ///
     /// The bytes are ZPL. The queue must pass them through without turning
     /// them into anything else, which is what "raw" means on both platforms.
+    ///
+    /// The caller reads the state first and only then prints, so the printer
+    /// can fault in the gap between the two. The app accepts that race. The
+    /// gap is two operating system calls wide, and an operator is standing at
+    /// the printer waiting for the replica, so a fault that lands inside it
+    /// shows up as a label that did not come out.
     fn print_raw(
         &self,
         name: &str,
@@ -163,13 +172,13 @@ pub trait PrinterTransport {
 /// The print queue of the machine this build runs on.
 #[cfg(target_os = "macos")]
 pub fn transport() -> impl PrinterTransport {
-    cups::Cups
+    macos::Cups
 }
 
 /// The print queue of the machine this build runs on.
 #[cfg(target_os = "windows")]
 pub fn transport() -> impl PrinterTransport {
-    spooler::Spooler
+    windows::Spooler
 }
 
 /// True when any of `fields` names Zebra or the ZD411 model.

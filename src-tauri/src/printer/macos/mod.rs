@@ -31,7 +31,10 @@ impl PrinterTransport for Cups {
         Ok(parse_status(&status)
             .into_iter()
             .map(|stanza| {
-                let device = devices.get(&stanza.name).cloned().unwrap_or_default();
+                let device = devices
+                    .get(&queue_key(&stanza.name))
+                    .cloned()
+                    .unwrap_or_default();
                 let description = description_from_detail(&stanza.detail).unwrap_or(device);
                 PrinterInfo {
                     is_zebra: super::looks_like_zebra(&[&stanza.name, &description]),
@@ -44,14 +47,17 @@ impl PrinterTransport for Cups {
     }
 
     fn printer_state(&self, name: &str) -> Result<PrinterState, PrinterError> {
-        // Asking about one queue keeps the answer small and current. CUPS
-        // exits non-zero for a name it does not know, which `lpstat` turns
-        // into empty output rather than an error, so an empty result here
-        // means the queue is gone.
-        let status = lpstat(&["-p", "-l", name])?;
+        // The queue name has to come straight after `-p`. CUPS reads the token
+        // after `-p` as a name only when it does not start with a dash, so
+        // `-p -l <name>` reports every queue on the machine and `-p <name> -l`
+        // reports the one asked for. Asking for one keeps the answer small.
+        //
+        // CUPS exits non-zero for a name it does not know, which `lpstat`
+        // turns into empty output, so no stanza here means no such queue.
+        let status = lpstat(&["-p", name, "-l"])?;
         parse_status(&status)
             .into_iter()
-            .find(|stanza| stanza.name == name)
+            .find(|stanza| queue_key(&stanza.name) == queue_key(name))
             .map(|stanza| state_from_stanza(&stanza.status_line, &stanza.detail))
             .ok_or_else(|| PrinterError::PrinterNotFound(name.to_string()))
     }
@@ -62,9 +68,10 @@ impl PrinterTransport for Cups {
         bytes: &[u8],
         title: &str,
     ) -> Result<PrintReceipt, PrinterError> {
-        // `-o raw` tells CUPS to send the bytes to the printer untouched
-        // instead of running them through a filter. The trailing `-` makes
-        // `lp` read the job from standard input.
+        // `-o raw` makes CUPS pass the bytes straight to the printer. A
+        // normal job goes through a filter that rewrites it into the
+        // printer's page language, which would destroy the ZPL. The
+        // trailing `-` makes `lp` read the job from standard input.
         let mut child = Command::new(LP)
             .args(["-d", name, "-o", "raw", "-t", title, "-"])
             .stdin(Stdio::piped())
@@ -185,16 +192,27 @@ fn description_from_detail(detail: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// The form of a queue name that two names are compared in.
+///
+/// CUPS treats queue names without regard to case: `lpstat -p lab_zebra`
+/// answers for the queue CUPS calls `Lab_Zebra`. An operator or a stored
+/// setting can hand this app either spelling, so every comparison of two queue
+/// names goes through here.
+fn queue_key(name: &str) -> String {
+    name.to_lowercase()
+}
+
 /// Reads the device address of every queue out of `lpstat -v` output.
 ///
 /// Each line looks like `device for Lab_Zebra: ipp://192.0.2.14/...`.
+/// The map is keyed by [`queue_key`], not by the name CUPS printed.
 fn parse_devices(text: &str) -> HashMap<String, String> {
     text.lines()
         .filter_map(|line| line.trim().strip_prefix("device for "))
         // The first colon ends the queue name. Later colons belong to the
         // address, such as the port in `ipp://192.0.2.16:631/...`.
         .filter_map(|rest| rest.split_once(':'))
-        .map(|(name, uri)| (name.trim().to_string(), uri.trim().to_string()))
+        .map(|(name, uri)| (queue_key(name.trim()), uri.trim().to_string()))
         .collect()
 }
 
@@ -230,8 +248,14 @@ fn state_from_stanza(status_line: &str, detail: &str) -> PrinterState {
         return PrinterState::Offline;
     }
 
+    // A queue can be stopped in three ways that all leave a job waiting: the
+    // queue is disabled, a reason says it is paused, or it is still enabled but
+    // holding every new job.
     let header = status_line.to_lowercase();
-    if reasons.contains("paused") || header.starts_with("disabled since") {
+    if reasons.contains("paused")
+        || header.starts_with("disabled since")
+        || header.contains("holding new jobs")
+    {
         return PrinterState::Paused;
     }
     // `now printing` means a job is running. The queue still takes the next
@@ -394,24 +418,49 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
     fn device_addresses_are_read_per_queue() {
         let devices = parse_devices(DEVICES);
         assert_eq!(
-            devices.get("Lab_Zebra").map(String::as_str),
+            devices.get("lab_zebra").map(String::as_str),
             Some("ipp://192.0.2.14/printers/zebra_lab")
         );
-        // The port in this address must stay with the address, not split the
-        // queue name off at the wrong colon.
+        // The port in this address belongs to the address. Splitting at the
+        // wrong colon would cut the queue name out of the middle of it.
         assert_eq!(
-            devices.get("Zebra_Stock_Room").map(String::as_str),
+            devices.get("zebra_stockroom").map(String::as_str),
             Some("ipp://192.0.2.16:631/printers/zebra_stockroom")
         );
         assert_eq!(devices.len(), 4);
     }
 
+    /// CUPS answers for a queue whatever case the name is typed in, so the
+    /// device map has to be readable the same way.
+    #[test]
+    fn device_addresses_are_found_whatever_the_case() {
+        let devices = parse_devices(DEVICES);
+        assert_eq!(
+            devices.get(&queue_key("BURBANK_zebra")).map(String::as_str),
+            Some("ipp://192.0.2.14/printers/zebra_lab")
+        );
+    }
+
+    #[test]
+    fn queue_names_are_compared_without_regard_to_case() {
+        assert_eq!(queue_key("Lab_Zebra"), queue_key("lab_zebra"));
+        assert_ne!(queue_key("Lab_Zebra"), queue_key("Zebra_Stock_Room"));
+    }
+
+    /// An enabled queue that holds every new job leaves a replica waiting just
+    /// as a disabled one does, so ADR 0003 has to refuse the print run.
+    #[test]
+    fn a_queue_holding_new_jobs_is_paused() {
+        let text = "printer Lab_Zebra is idle.  enabled since Wed Aug 26 14:24:51 2026 - is holding new jobs\n";
+        assert_eq!(state_of(text, "Lab_Zebra"), PrinterState::Paused);
+    }
+
     #[test]
     fn the_device_address_marks_a_queue_as_a_zebra() {
         let devices = parse_devices(DEVICES);
-        let zebra = devices.get("Lab_Zebra").unwrap();
+        let zebra = devices.get("lab_zebra").unwrap();
         assert!(super::super::looks_like_zebra(&["Lab_Zebra", zebra]));
-        let brother = devices.get("Lab_Brother").unwrap();
+        let brother = devices.get("lab_brother").unwrap();
         assert!(!super::super::looks_like_zebra(&[
             "Lab_Brother",
             brother
