@@ -33,12 +33,20 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "macOS": {
+      "hardenedRuntime": true,
+      "minimumSystemVersion": "10.15"
+    },
     "windows": {
       "nsis": {
         "installMode": "perMachine"
       },
       "webviewInstallMode": {
         "type": "embedBootstrapper"
+      },
+      "signCommand": {
+        "cmd": "cmd",
+        "args": ["/C", "artifact-signing-cli", "-e", "%AZURE_ARTIFACT_SIGNING_ENDPOINT%", "%1"]
       }
     }
   }

@@ -1,9 +1,49 @@
-# Builds installers on Blacksmith runners when a version tag is pushed. Signing is not configured
-# yet, so the artifacts are unsigned until the certificate secrets exist:
-# APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
-# APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID for macOS notarization, and
-# AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET plus the
-# tauri.conf.json signCommand for Azure Trusted Signing on Windows.
+# Builds the installers on Blacksmith runners when a version tag is pushed, and attaches them
+# to a draft GitHub release. `scripts/release.ts` creates the tag. `docs/releasing.md` walks
+# through the whole procedure.
+#
+# Signing is driven by repository secrets alone. When a platform's secrets are missing, that
+# platform still builds and still uploads its artifacts, unsigned, and the job log carries a
+# notice saying so. `scripts/setup-signing.sh` creates and stores every secret listed here.
+#
+# macOS. A Developer ID Application certificate signs the app, and Apple notarizes it.
+#   APPLE_CERTIFICATE
+#     Base64 text of the Developer ID Application certificate exported from Keychain Access
+#     as a .p12 file. Produced by `openssl base64 -A -in certificate.p12`.
+#   APPLE_CERTIFICATE_PASSWORD
+#     The password chosen while exporting that .p12 file.
+#   KEYCHAIN_PASSWORD
+#     Any random string. It unlocks the throwaway keychain this job creates to hold the
+#     certificate. It protects nothing outside the runner.
+#   APPLE_ID
+#     Email address of the Apple account that owns the certificate.
+#   APPLE_PASSWORD
+#     An app-specific password for that Apple account, created at appleid.apple.com. Apple
+#     rejects the account password here.
+#   APPLE_TEAM_ID
+#     The ten character Team ID from the membership page at developer.apple.com/account.
+#
+# Windows. Azure Artifact Signing, the service Microsoft used to call Azure Trusted Signing,
+# signs the installer. The first three values come from a Microsoft Entra ID app registration
+# that has been granted the signing role. The last three name the signing account itself.
+#   AZURE_TENANT_ID
+#     Directory (tenant) ID of the Microsoft Entra ID directory.
+#   AZURE_CLIENT_ID
+#     Application (client) ID of the app registration.
+#   AZURE_CLIENT_SECRET
+#     A client secret created for that app registration.
+#   AZURE_ARTIFACT_SIGNING_ENDPOINT
+#     Regional service URL of the signing account, such as https://wus2.codesigning.azure.net.
+#   AZURE_ARTIFACT_SIGNING_ACCOUNT
+#     Name of the Azure Artifact Signing account.
+#   AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE
+#     Name of the certificate profile inside that account.
+#
+# Sources for the steps below:
+#   https://v2.tauri.app/distribute/sign/macos/
+#   https://v2.tauri.app/distribute/sign/windows/
+#   https://v2.tauri.app/distribute/pipelines/github/
+#   https://github.com/tauri-apps/tauri-action
 name: release
 
 on:
@@ -12,6 +52,10 @@ on:
 
 jobs:
   build:
+    # tauri-action creates the draft release with GITHUB_TOKEN, which needs write access to
+    # the repository contents.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -33,11 +77,137 @@ jobs:
         with:
           workspaces: src-tauri
       - run: bun install --frozen-lockfile
+
+      # A step `if:` cannot read the `secrets` context, so the presence of each set of secrets
+      # becomes a step output that the later steps can read.
+      - name: Decide whether this build can be signed
+        id: signing
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+        run: |
+          set -eu
+
+          all_set() {
+            for name in "$@"; do
+              if [ -z "${!name}" ]; then
+                return 1
+              fi
+            done
+            return 0
+          }
+
+          apple=false
+          if all_set APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD \
+                     APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; then
+            apple=true
+          fi
+
+          azure=false
+          if all_set AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET \
+                     AZURE_ARTIFACT_SIGNING_ENDPOINT AZURE_ARTIFACT_SIGNING_ACCOUNT \
+                     AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE; then
+            azure=true
+          fi
+
+          # tauri.conf.json always carries bundle.windows.signCommand, and the bundler runs it
+          # for every file it produces. On an unsigned Windows build the command would fail
+          # because artifact-signing-cli is not installed and has nothing to authenticate with,
+          # so the key is deleted from the effective config instead. A `--config` patch follows
+          # RFC 7386 merge semantics, where null removes a key.
+          extra_args=""
+          if [ "$RUNNER_OS" = "Windows" ] && [ "$azure" = false ]; then
+            extra_args='--config {"bundle":{"windows":{"signCommand":null}}}'
+          fi
+
+          {
+            echo "apple=$apple"
+            echo "azure=$azure"
+            echo "extra_args=$extra_args"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Report that this build is unsigned
+        if: |
+          (runner.os == 'macOS' && steps.signing.outputs.apple != 'true') ||
+          (runner.os == 'Windows' && steps.signing.outputs.azure != 'true')
+        shell: bash
+        run: |
+          echo "::notice title=Unsigned build::The $RUNNER_OS signing secrets are not set on this repository, so the artifacts this job uploads are unsigned. A person who downloads them has to override the operating system warning by hand. docs/releasing.md lists the secrets and scripts/setup-signing.sh creates them."
+
+      # https://v2.tauri.app/distribute/sign/macos/ under "Signing in CI/CD platforms".
+      # The certificate goes into a keychain that lives only for this job. The identity string
+      # codesign needs is read back out of that keychain, so it never has to be stored as a
+      # secret of its own. Exporting it through GITHUB_ENV rather than the build step's `env:`
+      # block means it is genuinely absent on an unsigned build, which is what makes the
+      # bundler skip signing instead of failing on an empty identity.
+      - name: Import the Developer ID Application certificate
+        if: runner.os == 'macOS' && steps.signing.outputs.apple == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -eu
+          certificate="$RUNNER_TEMP/certificate.p12"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          # Keep the keychain unlocked for an hour so a long notarization wait cannot lock it.
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import "$certificate" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f "$certificate"
+
+          identity=$(security find-identity -v -p codesigning build.keychain \
+            | grep "Developer ID Application" | head -n 1 | awk -F'"' '{print $2}') || true
+          if [ -z "$identity" ]; then
+            echo "the imported certificate is not a Developer ID Application certificate" >&2
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      # https://v2.tauri.app/distribute/sign/windows/ under "Azure Artifact Signing".
+      # tauri.conf.json > bundle > windows > signCommand runs this binary once per file the
+      # bundler produces, so it has to be on PATH before the build starts.
+      - name: Install artifact-signing-cli
+        if: runner.os == 'Windows' && steps.signing.outputs.azure == 'true'
+        run: cargo install artifact-signing-cli --version 0.11.0 --locked
+
       - uses: tauri-apps/tauri-action@action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS. APPLE_SIGNING_IDENTITY comes from the certificate import step. The bundler
+          # reads the notarization credentials only after it has signed something, so leaving
+          # them empty on an unsigned build changes nothing.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows. artifact-signing-cli reads the credentials and the account and certificate
+          # profile names from the environment. The endpoint has no environment fallback in the
+          # tool, so signCommand passes it as `-e %AZURE_ARTIFACT_SIGNING_ENDPOINT%` and lets
+          # cmd.exe expand it.
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: DIN Replicator ${{ github.ref_name }}
           releaseDraft: true
-          args: ${{ matrix.args }}
+          args: >-
+            ${{ matrix.args }}
+            ${{ steps.signing.outputs.extra_args }}
