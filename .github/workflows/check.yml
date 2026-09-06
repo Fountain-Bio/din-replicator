@@ -1,7 +1,6 @@
-# Runs on every push and pull request on Blacksmith runners. The TypeScript
-# checks run once on Ubuntu. The Rust tests run on macOS and Windows because the
-# printer transport has one implementation per platform and only that platform
-# can compile it.
+# Runs on every push and pull request on Blacksmith runners. One job per platform so a
+# failure names where it happened. The Rust tests run on macOS and on Windows because the
+# printer transport has one implementation per platform and only that platform can compile it.
 name: check
 
 on:
@@ -11,6 +10,7 @@ on:
 
 jobs:
   typescript:
+    name: TypeScript
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7.0.1
@@ -20,12 +20,27 @@ jobs:
       - run: bun run test
       - run: bun run build
 
-  rust:
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [blacksmith-6vcpu-macos-latest, blacksmith-4vcpu-windows-2025]
-    runs-on: ${{ matrix.runner }}
+  rust-macos:
+    name: Rust on macOS
+    runs-on: blacksmith-6vcpu-macos-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: src-tauri
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  rust-windows:
+    name: Rust on Windows
+    runs-on: blacksmith-4vcpu-windows-2025
     defaults:
       run:
         working-directory: src-tauri
