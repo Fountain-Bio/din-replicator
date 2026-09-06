@@ -58,7 +58,7 @@ const DARKNESS_RANGE: RangeInclusive<u8> = 0..=30;
 /// How fast the label moves through the printer, in inches per second. Slower
 /// than the printer's top speed, because a barcode printed slowly has cleaner
 /// bar edges and scans more reliably.
-const DEFAULT_SPEED_IPS: u8 = 3;
+const DEFAULT_SPEED_IPS: u8 = 2;
 
 /// The print speeds the printer accepts, in inches per second.
 const SPEED_IPS_RANGE: RangeInclusive<u8> = 2..=6;
@@ -366,7 +366,7 @@ mod tests {
         assert_eq!(settings.max_copies, 20);
         assert_eq!(settings.print_method, PrintMethod::ThermalTransfer);
         assert_eq!(settings.darkness, 16);
-        assert_eq!(settings.speed_ips, 3);
+        assert_eq!(settings.speed_ips, 2);
         assert_eq!(settings.label_font, LabelFont::Printer);
         assert_eq!(settings.vertical_offset_dots, 0);
         assert_eq!(settings.horizontal_offset_dots, 0);

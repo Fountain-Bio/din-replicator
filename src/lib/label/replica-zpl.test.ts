@@ -420,16 +420,16 @@ describe("the eye-readable line", () => {
 });
 
 describe("print settings", () => {
-  it("defaults to thermal transfer, darkness 16, 3 inches per second, and no shift", () => {
+  it("defaults to thermal transfer, darkness 16, 2 inches per second, and no shift", () => {
     expect(DEFAULT_PRINT_SETTINGS).toEqual({
       printMethod: "thermalTransfer",
       darkness: 16,
-      speedIps: 3,
+      speedIps: 2,
       verticalOffsetDots: 0,
       horizontalOffsetDots: 0,
     });
     const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1 });
-    expect(zpl.split("\n").slice(0, 5)).toEqual(["~SD16", "^XA", "^CI28", "^MTT", "^PR3,3,3"]);
+    expect(zpl.split("\n").slice(0, 5)).toEqual(["~SD16", "^XA", "^CI28", "^MTT", "^PR2,2,2"]);
   });
 
   it("switches the media type for direct thermal", () => {

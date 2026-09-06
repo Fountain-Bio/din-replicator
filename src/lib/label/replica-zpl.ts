@@ -234,7 +234,7 @@ export const OFFSET_DOTS_MAX = 100;
 export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   printMethod: "thermalTransfer",
   darkness: 16,
-  speedIps: 3,
+  speedIps: 2,
   verticalOffsetDots: 0,
   horizontalOffsetDots: 0,
 };
