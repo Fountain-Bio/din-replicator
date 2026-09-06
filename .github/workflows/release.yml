@@ -1,4 +1,4 @@
-# Builds installers when a version tag is pushed. Signing is not configured
+# Builds installers on Blacksmith runners when a version tag is pushed. Signing is not configured
 # yet, so the artifacts are unsigned until the certificate secrets exist:
 # APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
 # APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID for macOS notarization, and
@@ -16,13 +16,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - runner: blacksmith-6vcpu-macos-latest
             args: --target aarch64-apple-darwin
-          - os: macos-latest
+          - runner: blacksmith-6vcpu-macos-latest
             args: --target x86_64-apple-darwin
-          - os: windows-latest
+          - runner: blacksmith-4vcpu-windows-2025
             args: ""
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2.2.0
