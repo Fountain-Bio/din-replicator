@@ -150,7 +150,7 @@ export function LabelPreview({
       </div>
       {plan.ok && (
         <p className="text-xs text-muted-foreground tabular-nums">
-          The barcode prints {plan.symbolWidthMm.toFixed(1)} mm wide.
+          Barcode {plan.symbolWidthMm.toFixed(1)} mm wide
         </p>
       )}
     </figure>

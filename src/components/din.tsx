@@ -46,7 +46,7 @@ export function DinParts({ din, className }: { din: string; className?: string }
       <span title="Flag characters" className="tabular-nums text-muted-foreground">
         {eye.flags}
       </span>
-      <CheckCharacterBox check={eye.check} className="size-7 text-base" />
+      <CheckCharacterBox check={eye.check} className="size-6 text-sm" />
     </span>
   );
 }

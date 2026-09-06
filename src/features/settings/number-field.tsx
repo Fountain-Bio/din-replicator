@@ -20,8 +20,8 @@ export interface NumberFieldProps {
   /** The element id, used by the label and by the tests that drive the field. */
   id: string;
   label: string;
-  /** The one line under the box that says what the number does. */
-  hint: string;
+  /** The unit or the range, in two or three words, shown beside the box. */
+  suffix: string;
   value: number;
   min: number;
   max: number;
@@ -35,7 +35,7 @@ export interface NumberFieldProps {
 export function NumberField({
   id,
   label,
-  hint,
+  suffix,
   value,
   min,
   max,
@@ -71,28 +71,30 @@ export function NumberField({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} className="text-sm font-normal">
         {label}
       </Label>
-      <Input
-        id={id}
-        type="number"
-        inputMode="decimal"
-        min={min}
-        max={max}
-        step={step}
-        value={draft ?? String(value)}
-        className="h-10 w-28 text-base tabular-nums"
-        onChange={(event) => type(event.currentTarget.value)}
-        onBlur={settle}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.currentTarget.blur();
-          }
-        }}
-      />
-      <p className="text-sm text-muted-foreground">{hint}</p>
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          type="number"
+          inputMode="decimal"
+          min={min}
+          max={max}
+          step={step}
+          value={draft ?? String(value)}
+          className="h-9 w-20 text-sm tabular-nums"
+          onChange={(event) => type(event.currentTarget.value)}
+          onBlur={settle}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <span className="text-xs text-muted-foreground tabular-nums">{suffix}</span>
+      </div>
     </div>
   );
 }

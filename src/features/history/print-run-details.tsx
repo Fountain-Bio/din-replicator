@@ -83,16 +83,14 @@ function Body({ run, onPrintAgain }: { run: PrintRun; onPrintAgain: (run: PrintR
         <Field label="Computer">{run.hostname}</Field>
         <Field label="Verification">
           {run.verification === null ? (
-            <span className="text-muted-foreground">Nobody verified this print run.</span>
+            <span className="text-muted-foreground">Not verified</span>
           ) : (
             <div className="flex flex-col gap-1">
               <span className={run.verification.matched ? "text-ok" : "text-destructive"}>
-                {run.verification.matched
-                  ? "Passed. The replica read back as the DIN that was printed."
-                  : "Failed. The replica did not read back as the DIN that was printed."}
+                {run.verification.matched ? "Passed" : "Failed"}
               </span>
               <span className="font-mono text-xs break-all text-muted-foreground">
-                Scan read {run.verification.scannedPayload}
+                {run.verification.scannedPayload}
               </span>
               <span className="text-xs text-muted-foreground">
                 {fullTime(run.verification.verifiedAt)}

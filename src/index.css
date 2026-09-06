@@ -88,6 +88,8 @@
      stays in one column so a 1920 pixel display does not stretch a table row
      into something nobody can follow across. */
   --shell-width: 76rem;
+  /** How wide the app's navigation rail is. */
+  --sidebar-width: 13rem;
   --ok: oklch(0.52 0.12 155);
   --ok-surface: oklch(0.965 0.028 155);
   --surface: oklch(0.985 0 0);
@@ -167,6 +169,30 @@
   * {
     scrollbar-width: thin;
     scrollbar-color: color-mix(in oklch, var(--foreground) 22%, transparent) transparent;
+  }
+
+  /* A pane that scrolls its own contents keeps its scrollbar drawn rather than
+     letting the platform hide it, because a hidden bar is the only clue that
+     there is more below. The gutter is reserved either way, so the fields do
+     not shift when the bar appears. */
+  .scroll-pane {
+    scrollbar-gutter: stable;
+  }
+  .scroll-pane::-webkit-scrollbar {
+    width: 11px;
+  }
+  .scroll-pane::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scroll-pane::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--foreground) 22%, transparent);
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
+  }
+  .scroll-pane::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklch, var(--foreground) 36%, transparent);
+    background-clip: content-box;
   }
 
   /* A DIN, a copy count, and a clock time all line up column by column. */

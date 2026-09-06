@@ -29,7 +29,6 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { eyeReadable } from "@/lib/isbt128";
@@ -120,28 +119,24 @@ export function HistoryScreen({ onPrintAgain }: HistoryScreenProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="history-search" className="text-sm font-normal text-muted-foreground">
-            Find a DIN
-          </Label>
-          <div className="relative">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="history-search"
-              value={search}
-              placeholder="Start of a DIN"
-              autoComplete="off"
-              spellCheck={false}
-              className="h-10 w-64 pl-9 font-mono text-sm"
-              onChange={(event) => {
-                setSearch(event.currentTarget.value);
-                setPageIndex(0);
-              }}
-            />
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            id="history-search"
+            aria-label="Find a DIN"
+            value={search}
+            placeholder="Find a DIN"
+            autoComplete="off"
+            spellCheck={false}
+            className="h-10 w-64 pl-9 font-mono text-sm"
+            onChange={(event) => {
+              setSearch(event.currentTarget.value);
+              setPageIndex(0);
+            }}
+          />
         </div>
-        <p className="pb-2.5 text-sm text-muted-foreground tabular-nums">
+        <p className="text-sm text-muted-foreground tabular-nums">
           {loading ? "Reading the print log" : `Page ${pageIndex + 1}`}
         </p>
       </div>
@@ -243,8 +238,8 @@ export function HistoryScreen({ onPrintAgain }: HistoryScreenProps) {
         {!loading && rows.length === 0 && error === null && (
           <p className="px-4 py-16 text-center text-sm text-muted-foreground">
             {search.trim().length === 0
-              ? "Nothing has been printed on this machine yet."
-              : "No print run has a DIN that starts with that."}
+              ? "Nothing printed on this machine yet"
+              : "No print run starts with that"}
           </p>
         )}
       </div>

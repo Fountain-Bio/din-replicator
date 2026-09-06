@@ -5,15 +5,16 @@
  * Every change is saved through `set_settings` as soon as it is made, so there
  * is no Save button to forget.
  *
- * One screen used to hold all of this in a single column, which meant reading
- * past the printer to reach the print log. The window is wider than it is
- * tall, so the sections became a sidebar: the four groups stay in view, and
- * only the fields of the group being changed take up height. The sidebar is a
- * tab list, so the arrow keys move between sections.
+ * Nothing on this screen explains what a control does. A field is its label,
+ * its control, and at most a unit or a range beside it. The section list names
+ * the group, so the pane carries no heading of its own either. What is left is
+ * short enough that a section fits the shortest window the app runs in, and
+ * `ScrollPane` marks the edge when one does not.
  */
 
 import { RefreshCwIcon } from "lucide-react";
 import { connectionText, PrinterStatus } from "@/components/printer-status";
+import { ScrollPane } from "@/components/scroll-pane";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -65,7 +66,7 @@ export interface SettingsScreenProps {
   onRefreshPrinters: () => void;
 }
 
-/** The sections of the screen, in the order the sidebar lists them. */
+/** The sections of the screen, in the order the list shows them. */
 const SECTIONS = [
   { id: "printer", label: "Printer" },
   { id: "verification", label: "Verification and copies" },
@@ -73,37 +74,17 @@ const SECTIONS = [
   { id: "print-log", label: "Print log" },
 ] as const;
 
-/** How each printing method reads, and the one line that explains it. */
-const PRINT_METHODS: Array<{ value: PrintMethod; label: string; explanation: string }> = [
-  {
-    value: "thermalTransfer",
-    label: "Thermal transfer",
-    explanation: "Melts a ribbon onto the label stock.",
-  },
-  {
-    value: "directThermal",
-    label: "Direct thermal",
-    explanation: "No ribbon. The heat darkens heat-sensitive label stock.",
-  },
+/** How each printing method reads in the picker. */
+const PRINT_METHODS: Array<{ value: PrintMethod; label: string }> = [
+  { value: "thermalTransfer", label: "Thermal transfer" },
+  { value: "directThermal", label: "Direct thermal" },
 ];
 
-/** How each label font reads, and the one line that explains it. */
-const LABEL_FONTS: Array<{ value: LabelFont; label: string; explanation: string }> = [
-  {
-    value: "printer",
-    label: "Printer font",
-    explanation: "The printer's own font, and the font the source labels are set in.",
-  },
-  {
-    value: "sans",
-    label: BUNDLED_LABEL_FONTS.sans.displayName,
-    explanation: "A sans serif face the app sends to the printer with each label.",
-  },
-  {
-    value: "mono",
-    label: BUNDLED_LABEL_FONTS.mono.displayName,
-    explanation: "A face whose characters are all one width, so a DIN lines up column by column.",
-  },
+/** How each label font reads in the picker. */
+const LABEL_FONTS: Array<{ value: LabelFont; label: string }> = [
+  { value: "printer", label: "Printer font" },
+  { value: "sans", label: BUNDLED_LABEL_FONTS.sans.displayName },
+  { value: "mono", label: BUNDLED_LABEL_FONTS.mono.displayName },
 ];
 
 /** One printer as a line in the picker: its name, then how it is attached. */
@@ -136,31 +117,24 @@ export function SettingsScreen({
   }
 
   return (
-    <Tabs
-      defaultValue={SECTIONS[0].id}
-      orientation="vertical"
-      className="h-full min-h-0 gap-6 sm:gap-8"
-    >
+    <Tabs defaultValue={SECTIONS[0].id} orientation="vertical" className="h-full min-h-0 gap-6">
       <TabsList
-        variant="default"
         aria-label="Settings sections"
-        className="h-fit w-44 shrink-0 flex-col items-stretch gap-1 bg-transparent p-0 sm:w-52"
+        className="h-fit w-40 shrink-0 flex-col items-stretch gap-0.5 bg-transparent p-0"
       >
         {SECTIONS.map((section) => (
           <TabsTrigger
             key={section.id}
             value={section.id}
-            className="h-9 w-full flex-none justify-start rounded-md px-3 text-sm data-active:bg-muted"
+            className="h-8 w-full flex-none justify-start rounded-md px-2.5 text-sm font-normal data-active:bg-muted"
           >
             {section.label}
           </TabsTrigger>
         ))}
       </TabsList>
 
-      {/* The pane scrolls on its own, so a long section never makes the window
-          scroll and the sidebar never leaves the screen. */}
-      <div className="@container min-w-0 flex-1 overflow-y-auto pb-8">
-        <div className="max-w-3xl">
+      <ScrollPane className="@container">
+        <div className="max-w-4xl pb-2">
           <TabsContent value="printer">
             <PrinterSection
               settings={settings}
@@ -183,63 +157,26 @@ export function SettingsScreen({
             <PrintLogSection storage={storage} storageError={storageError} />
           </TabsContent>
         </div>
-      </div>
+      </ScrollPane>
     </Tabs>
   );
 }
 
-/** A section's heading, the line that says what it is for, and its fields. */
-function Section({
-  title,
-  description,
-  action,
-  children,
-}: {
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
+/** One labelled control. */
+function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-3">
-          <h2 className="text-base font-semibold tracking-tight">{title}</h2>
-          {action}
-        </div>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/** One labelled control with the one line that explains it. */
-function Field({
-  id,
-  label,
-  hint,
-  children,
-}: {
-  id: string;
-  label: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5">
       <Label htmlFor={id} className="text-sm font-normal">
         {label}
       </Label>
       {children}
-      <p className="text-sm text-muted-foreground">{hint}</p>
     </div>
   );
 }
 
-/** The two-column grid the Advanced fields sit in once there is room for it. */
+/** The grid the fields sit in, one column at a time as the window allows. */
 function FieldGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid gap-x-8 gap-y-6 @lg:grid-cols-2">{children}</div>;
+  return <div className="grid gap-x-6 gap-y-5 @sm:grid-cols-2 @2xl:grid-cols-3">{children}</div>;
 }
 
 function PrinterSection({
@@ -266,25 +203,17 @@ function PrinterSection({
   const otherPrinters = printers.filter((printer) => !printer.isZebra).sort(byName);
 
   return (
-    <Section
-      title="Printer"
-      description="Replicas go to this printer. Only a label printer prints them correctly."
-      action={
-        <Button variant="ghost" size="sm" onClick={onRefreshPrinters} disabled={loadingPrinters}>
-          <RefreshCwIcon className={loadingPrinters ? "animate-spin" : undefined} />
-          {loadingPrinters ? "Reading" : "Read again"}
-        </Button>
-      }
-    >
-      {/* The section heading already says what this picker is, so the picker
-          carries its name for a screen reader and no second heading on screen. */}
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="printer" className="text-sm font-normal">
+          Printer
+        </Label>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Select
             value={settings.selectedPrinter ?? ""}
             onValueChange={(name) => onChange({ ...settings, selectedPrinter: name })}
           >
-            <SelectTrigger id="printer" aria-label="Printer" className="h-10 w-full max-w-sm">
+            <SelectTrigger id="printer" className="h-9 w-full max-w-sm min-w-56">
               <SelectValue placeholder="Choose a printer" />
             </SelectTrigger>
             <SelectContent>
@@ -311,26 +240,29 @@ function PrinterSection({
             </SelectContent>
           </Select>
           {chosenPrinter !== undefined && <PrinterStatus state={chosenPrinter.state} />}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto"
+            onClick={onRefreshPrinters}
+            disabled={loadingPrinters}
+          >
+            <RefreshCwIcon className={loadingPrinters ? "animate-spin" : undefined} />
+            {loadingPrinters ? "Reading" : "Read again"}
+          </Button>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Each printer is listed with how it is attached: USB, or the address it answers on.
-        </p>
       </div>
 
       {savedPrinterMissing && (
         <p className="text-sm text-destructive">
-          The saved printer {settings.selectedPrinter} is not connected to this computer. Choose
-          another printer, or plug the saved one back in and read the list again.
+          {settings.selectedPrinter} is not connected to this computer.
         </p>
       )}
 
       {printers.length === 0 && !loadingPrinters && (
-        <p className="text-sm text-muted-foreground">
-          This computer has no printers installed. Add the label printer in the operating system's
-          printer settings first.
-        </p>
+        <p className="text-sm text-muted-foreground">No printers are installed on this computer.</p>
       )}
-    </Section>
+    </div>
   );
 }
 
@@ -342,38 +274,29 @@ function VerificationSection({
   onChange: (settings: Settings) => void;
 }) {
   return (
-    <Section
-      title="Verification and copies"
-      description="What happens after a print run, and how many replicas one print run may produce."
-    >
-      <div className="flex flex-col gap-2">
-        <Label
-          htmlFor="verify"
-          className="flex w-full items-center justify-between gap-6 text-sm font-normal"
-        >
-          Ask for a verification scan after every print run
-          <Switch
-            id="verify"
-            checked={settings.verifyAfterPrint}
-            onCheckedChange={(checked) => onChange({ ...settings, verifyAfterPrint: checked })}
-          />
-        </Label>
-        <p className="text-sm text-muted-foreground">
-          The app compares the scan of a fresh replica against the barcode payload it printed, and
-          writes the result to the print log.
-        </p>
-      </div>
+    <div className="flex max-w-md flex-col gap-6">
+      <Label
+        htmlFor="verify"
+        className="flex w-full items-center justify-between gap-6 text-sm font-normal"
+      >
+        Verification scan after every print run
+        <Switch
+          id="verify"
+          checked={settings.verifyAfterPrint}
+          onCheckedChange={(checked) => onChange({ ...settings, verifyAfterPrint: checked })}
+        />
+      </Label>
 
       <NumberField
         id="max-copies"
         label="Largest copy count"
-        hint={`The most replicas the scan screen lets one print run produce, ${SETTINGS_BOUNDS.maxCopies.min} to ${SETTINGS_BOUNDS.maxCopies.max}.`}
+        suffix={`${SETTINGS_BOUNDS.maxCopies.min} to ${SETTINGS_BOUNDS.maxCopies.max}`}
         value={settings.maxCopies}
         min={SETTINGS_BOUNDS.maxCopies.min}
         max={SETTINGS_BOUNDS.maxCopies.max}
         onCommit={(maxCopies) => onChange({ ...settings, maxCopies })}
       />
-    </Section>
+    </div>
   );
 }
 
@@ -384,23 +307,15 @@ function AdvancedSection({
   settings: Settings;
   onChange: (settings: Settings) => void;
 }) {
-  const currentMethod =
-    PRINT_METHODS.find((method) => method.value === settings.printMethod) ?? PRINT_METHODS[0]!;
-  const currentFont =
-    LABEL_FONTS.find((font) => font.value === settings.labelFont) ?? LABEL_FONTS[0]!;
-
   return (
-    <Section
-      title="Advanced"
-      description="These match the printer and the label stock the app was built for. A change here takes effect on the next print run."
-    >
+    <div className="flex flex-col gap-6">
       <FieldGrid>
-        <Field id="print-method" label="Print method" hint={currentMethod.explanation}>
+        <Field id="print-method" label="Print method">
           <Select
             value={settings.printMethod}
             onValueChange={(value) => onChange({ ...settings, printMethod: value as PrintMethod })}
           >
-            <SelectTrigger id="print-method" className="h-10 w-full max-w-xs">
+            <SelectTrigger id="print-method" className="h-9 w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -413,16 +328,12 @@ function AdvancedSection({
           </Select>
         </Field>
 
-        <Field
-          id="label-font"
-          label="Label font"
-          hint={`The eye-readable line under the barcode is set in this font. ${currentFont.explanation}`}
-        >
+        <Field id="label-font" label="Label font">
           <Select
             value={settings.labelFont}
             onValueChange={(value) => onChange({ ...settings, labelFont: value as LabelFont })}
           >
-            <SelectTrigger id="label-font" className="h-10 w-full max-w-xs">
+            <SelectTrigger id="label-font" className="h-9 w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -438,7 +349,7 @@ function AdvancedSection({
         <NumberField
           id="darkness"
           label="Darkness"
-          hint={`${DARKNESS_MIN} to ${DARKNESS_MAX}. Higher is darker. Raise it when replicas look faded.`}
+          suffix={`${DARKNESS_MIN} to ${DARKNESS_MAX}`}
           value={settings.darkness}
           min={DARKNESS_MIN}
           max={DARKNESS_MAX}
@@ -448,7 +359,7 @@ function AdvancedSection({
         <NumberField
           id="speed-ips"
           label="Speed"
-          hint={`Inches per second, ${SPEED_IPS_MIN} to ${SPEED_IPS_MAX}. Slower prints darker and sharper.`}
+          suffix="ips"
           value={settings.speedIps}
           min={SPEED_IPS_MIN}
           max={SPEED_IPS_MAX}
@@ -456,12 +367,12 @@ function AdvancedSection({
         />
 
         {/* Where the printer puts the whole label, for a roll that sits a
-            little off in the printer. Neither number moves anything within
-            the label. */}
+            little off in the printer. Neither number moves anything within the
+            label. */}
         <NumberField
           id="vertical-offset"
           label="Vertical position"
-          hint={`Dots, ${OFFSET_DOTS_MIN} to ${OFFSET_DOTS_MAX}. A positive number moves what is printed down the label. 12 dots is a millimetre.`}
+          suffix="dots"
           value={settings.verticalOffsetDots}
           min={OFFSET_DOTS_MIN}
           max={OFFSET_DOTS_MAX}
@@ -471,7 +382,7 @@ function AdvancedSection({
         <NumberField
           id="horizontal-offset"
           label="Horizontal position"
-          hint={`Dots, ${OFFSET_DOTS_MIN} to ${OFFSET_DOTS_MAX}. A positive number moves what is printed to the right.`}
+          suffix="dots"
           value={settings.horizontalOffsetDots}
           min={OFFSET_DOTS_MIN}
           max={OFFSET_DOTS_MAX}
@@ -479,22 +390,16 @@ function AdvancedSection({
         />
       </FieldGrid>
 
-      <Separator />
-
-      <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-3">
         <h3 className="text-sm font-semibold tracking-tight">Label stock</h3>
-        <p className="text-sm text-muted-foreground">
-          The size of one label on the roll and the resolution of the print head. Every dot on a
-          replica is worked out from these three numbers, so the scan screen's preview changes with
-          them.
-        </p>
+        <Separator className="flex-1" />
       </div>
 
       <FieldGrid>
         <NumberField
           id="label-width"
           label="Label width"
-          hint={`Inches across the label, ${SETTINGS_BOUNDS.labelWidthInches.min} to ${SETTINGS_BOUNDS.labelWidthInches.max}.`}
+          suffix="in"
           value={settings.labelWidthInches}
           min={SETTINGS_BOUNDS.labelWidthInches.min}
           max={SETTINGS_BOUNDS.labelWidthInches.max}
@@ -506,7 +411,7 @@ function AdvancedSection({
         <NumberField
           id="label-height"
           label="Label height"
-          hint={`Inches along the roll, ${SETTINGS_BOUNDS.labelHeightInches.min} to ${SETTINGS_BOUNDS.labelHeightInches.max}.`}
+          suffix="in"
           value={settings.labelHeightInches}
           min={SETTINGS_BOUNDS.labelHeightInches.min}
           max={SETTINGS_BOUNDS.labelHeightInches.max}
@@ -515,21 +420,14 @@ function AdvancedSection({
           onCommit={(labelHeightInches) => onChange({ ...settings, labelHeightInches })}
         />
 
-        <Field
-          id="printer-dpi"
-          label="Printer resolution"
-          hint="Dots per inch the print head lays down. It is printed on the printer, and a wrong number makes every replica the wrong size."
-        >
+        <Field id="printer-dpi" label="Printer resolution">
           <Select
             value={String(settings.printerDotsPerInch)}
             onValueChange={(value) =>
-              onChange({
-                ...settings,
-                printerDotsPerInch: Number(value) as PrinterDotsPerInch,
-              })
+              onChange({ ...settings, printerDotsPerInch: Number(value) as PrinterDotsPerInch })
             }
           >
-            <SelectTrigger id="printer-dpi" className="h-10 w-full max-w-xs">
+            <SelectTrigger id="printer-dpi" className="h-9 w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -542,7 +440,7 @@ function AdvancedSection({
           </Select>
         </Field>
       </FieldGrid>
-    </Section>
+    </div>
   );
 }
 
@@ -553,31 +451,28 @@ function PrintLogSection({
   storage: StorageInfo | null;
   storageError: string | null;
 }) {
+  if (storageError !== null) {
+    return <p className="text-sm text-destructive">{storageError}</p>;
+  }
+  if (storage === null) {
+    return <p className="text-sm text-muted-foreground">Reading the print log</p>;
+  }
+  if (storage.unavailable !== null) {
+    return (
+      <p className="text-sm text-destructive">{printLogUnavailableText(storage.unavailable)}</p>
+    );
+  }
+
   return (
-    <Section
-      title="Print log"
-      description="Every print run this machine records goes into one SQLite file. The history screen reads it."
-    >
-      {storageError !== null ? (
-        <p className="text-sm text-destructive">
-          Where the print log lives could not be read. {storageError}
-        </p>
-      ) : storage === null ? (
-        <p className="text-sm text-muted-foreground">Reading where the print log lives</p>
-      ) : storage.unavailable !== null ? (
-        <p className="text-sm text-destructive">{printLogUnavailableText(storage.unavailable)}</p>
-      ) : (
-        <div className="flex flex-col gap-2">
-          <p className="font-mono text-xs break-all text-muted-foreground">
-            {storage.databasePath}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {storage.machineWide
-              ? "Every login on this computer shares one history."
-              : "This history covers only the login you are using now. The app could not write to the machine-wide directory."}
-          </p>
-        </div>
-      )}
-    </Section>
+    <dl className="flex flex-col gap-4 text-sm">
+      <div className="flex flex-col gap-1">
+        <dt className="text-muted-foreground">File</dt>
+        <dd className="font-mono text-xs break-all">{storage.databasePath}</dd>
+      </div>
+      <div className="flex flex-col gap-1">
+        <dt className="text-muted-foreground">History</dt>
+        <dd>{storage.machineWide ? "Shared by every login" : "This login only"}</dd>
+      </div>
+    </dl>
   );
 }

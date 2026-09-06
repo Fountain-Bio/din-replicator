@@ -58,7 +58,7 @@ export function CopyCount({ value, max, disabled, onChange }: CopyCountProps) {
           <PlusIcon />
         </Button>
       </div>
-      <span className="text-sm text-muted-foreground tabular-nums">up to {max} replicas</span>
+      <span className="text-xs text-muted-foreground tabular-nums">max {max}</span>
     </div>
   );
 }

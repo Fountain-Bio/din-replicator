@@ -169,21 +169,17 @@ export function historyColumns({ onPrintAgain }: HistoryColumnActions) {
       header: "DIN",
       cell: ({ row }) => {
         const run = row.original;
-        const who = `${run.operatorUser} on ${run.hostname}`;
+        // The printer is not in the row. It is in the window's sidebar for the
+        // machine as it stands now, and in the details panel for the run as it
+        // happened. What a question about a print run starts from is who ran
+        // it and where.
         return (
           <div className="min-w-0">
             <div className="truncate font-mono text-sm font-medium tabular-nums">
               {eyeReadable(run.din).text}
             </div>
-            {/* A printer name can run to forty characters, so it is the part
-                that gives way. The operator and the computer keep their space,
-                because those are what an audit question starts from. */}
-            <div className="flex min-w-0 gap-1.5 text-xs text-muted-foreground">
-              <span className="truncate" title={run.printerName}>
-                {run.printerName}
-              </span>
-              <span aria-hidden>·</span>
-              <span className="shrink-0">{who}</span>
+            <div className="truncate text-xs text-muted-foreground">
+              {run.operatorUser} on {run.hostname}
             </div>
           </div>
         );

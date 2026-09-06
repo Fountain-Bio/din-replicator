@@ -12,12 +12,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "cn";
+import { HistoryIcon, PrinterIcon, ScanBarcodeIcon, SettingsIcon } from "lucide-react";
+import { PrinterStatus } from "@/components/printer-status";
 import { Toaster } from "@/components/ui/sonner";
 import { HistoryScreen } from "@/features/history/history-screen";
 import {
   selectedPrinterState,
   usePrinters,
   useSelectedPrinter,
+  type SelectedPrinter,
 } from "@/features/printer/use-printers";
 import { ScanScreen } from "@/features/scan/scan-screen";
 import { canPrint, canSetCopyCount } from "@/features/scan/scan-state";
@@ -33,10 +36,10 @@ import type { StorageInfo } from "@/lib/tauri/types";
 
 type Screen = "scan" | "history" | "settings";
 
-const SCREENS: Array<{ id: Screen; label: string }> = [
-  { id: "scan", label: "Scan" },
-  { id: "history", label: "History" },
-  { id: "settings", label: "Settings" },
+const SCREENS: Array<{ id: Screen; label: string; icon: typeof ScanBarcodeIcon }> = [
+  { id: "scan", label: "Scan", icon: ScanBarcodeIcon },
+  { id: "history", label: "History", icon: HistoryIcon },
+  { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export default function App() {
@@ -151,34 +154,11 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
-      <header className="shrink-0 border-b bg-surface">
-        <div className="mx-auto flex w-full max-w-(--shell-width) items-center gap-6 px-5 py-3 sm:px-8">
-          <h1 className="text-sm font-semibold tracking-tight">DIN Replicator</h1>
-          <nav aria-label="Screens" className="flex items-center gap-1 rounded-lg bg-muted p-1">
-            {SCREENS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                aria-current={screen === entry.id ? "page" : undefined}
-                onClick={() => setScreen(entry.id)}
-                className={cn(
-                  "h-8 rounded-md px-4 text-sm font-medium transition-colors duration-150 outline-none",
-                  "focus-visible:ring-3 focus-visible:ring-ring/50",
-                  screen === entry.id
-                    ? "bg-background text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {entry.label}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </header>
+    <div className="flex h-screen w-full overflow-hidden bg-background">
+      <Sidebar screen={screen} printer={selected} onGoToScreen={setScreen} />
 
-      <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-        <div className="mx-auto h-full w-full max-w-(--shell-width) px-5 py-6 sm:px-8 sm:py-8">
+      <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div className="mx-auto h-full w-full max-w-(--shell-width) px-6 py-6">
           {screen === "scan" && (
             <ScanScreen
               state={state}
@@ -208,6 +188,82 @@ export default function App() {
       </main>
 
       <Toaster position="bottom-right" richColors />
+    </div>
+  );
+}
+
+/**
+ * The rail down the left of the window: the app's name, the three screens, and
+ * the printer replicas go to.
+ *
+ * The printer sits at the foot of the rail rather than on the scan screen, so
+ * an operator reading the history or changing a setting can still see whether
+ * the next print run would go through. Pressing it opens the settings screen,
+ * where the printer is chosen.
+ */
+function Sidebar({
+  screen,
+  printer,
+  onGoToScreen,
+}: {
+  screen: Screen;
+  printer: SelectedPrinter;
+  onGoToScreen: (screen: Screen) => void;
+}) {
+  return (
+    <div className="flex w-(--sidebar-width) shrink-0 flex-col border-r bg-surface">
+      <h1 className="px-4 py-4 text-sm font-semibold tracking-tight">DIN Replicator</h1>
+
+      <nav aria-label="Screens" className="flex flex-col gap-0.5 px-2">
+        {SCREENS.map((entry) => {
+          const current = screen === entry.id;
+          return (
+            <button
+              key={entry.id}
+              type="button"
+              aria-current={current ? "page" : undefined}
+              onClick={() => onGoToScreen(entry.id)}
+              className={cn(
+                "flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium outline-none",
+                "transition-colors duration-150 focus-visible:ring-3 focus-visible:ring-ring/50",
+                current
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              )}
+            >
+              <entry.icon className="size-4 shrink-0" />
+              {entry.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      <button
+        type="button"
+        onClick={() => onGoToScreen("settings")}
+        className="mt-auto flex flex-col items-start gap-1 border-t px-4 py-3 text-left outline-none transition-colors duration-150 hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+      >
+        <span className="flex w-full items-center gap-2">
+          <PrinterIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <span
+            className="min-w-0 truncate text-xs font-medium"
+            title={printer.kind === "found" ? printer.printer.name : undefined}
+          >
+            {printer.kind === "found"
+              ? printer.printer.name
+              : printer.kind === "missing"
+                ? printer.name
+                : "No printer"}
+          </span>
+        </span>
+        {printer.kind === "found" ? (
+          <PrinterStatus state={printer.state} className="text-xs" />
+        ) : (
+          <span className="pl-[1.375rem] text-xs text-destructive">
+            {printer.kind === "missing" ? "Not connected" : "Not chosen"}
+          </span>
+        )}
+      </button>
     </div>
   );
 }
