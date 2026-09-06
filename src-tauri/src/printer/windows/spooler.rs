@@ -15,6 +15,7 @@ use ::windows::Win32::Graphics::Printing::{
     PRINTER_ENUM_LOCAL, PRINTER_HANDLE, PRINTER_INFO_2W,
 };
 
+use super::connection::connection_from_port;
 use super::status::{self, state_from_flags};
 use crate::printer::{PrintReceipt, PrinterError, PrinterInfo, PrinterState, PrinterTransport};
 
@@ -185,6 +186,7 @@ fn printer_info(info: &PRINTER_INFO_2W) -> PrinterInfo {
     let name = unsafe { read_wide(info.pPrinterName) };
     let comment = unsafe { read_wide(info.pComment) };
     let driver = unsafe { read_wide(info.pDriverName) };
+    let port = unsafe { read_wide(info.pPortName) };
 
     // The comment is free text whoever installed the queue typed, so it is
     // often empty. The driver name always names the model, which is what
@@ -200,6 +202,7 @@ fn printer_info(info: &PRINTER_INFO_2W) -> PrinterInfo {
         state: state_from_flags(info.Status, info.Attributes),
         name,
         description,
+        connection: connection_from_port(&port),
     }
 }
 

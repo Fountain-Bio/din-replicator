@@ -87,6 +87,37 @@ pub struct PrinterInfo {
     /// A replica only comes out right on a Zebra, so the UI lists these first.
     pub is_zebra: bool,
     pub state: PrinterState,
+    /// How the queue reaches the printer, read from the queue's own address
+    /// for it.
+    pub connection: PrinterConnection,
+}
+
+/// How the print queue reaches a printer, read from the queue's own address
+/// for it: the CUPS device URI on macOS, the spooler port name on Windows.
+///
+/// Serialises as `{"kind": "usb", "host": null}` or `{"kind": "network",
+/// "host": "192.0.2.14"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterConnection {
+    pub kind: ConnectionKind,
+    /// The network address the queue holds for the printer. Set only when
+    /// `kind` is [`ConnectionKind::Network`].
+    pub host: Option<String>,
+}
+
+/// How a printer is wired to the machine, read from the print queue's address
+/// for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConnectionKind {
+    /// The queue's address names a USB connection.
+    Usb,
+    /// The queue's address names a network connection: an IP address, or a
+    /// name the network resolves to one.
+    Network,
+    /// The queue's address names neither, or there was no address to read.
+    Other,
 }
 
 /// What the queue gave back after it took a print run.
@@ -223,11 +254,33 @@ mod tests {
             description: "ZDesigner ZD411-300dpi ZPL".into(),
             is_zebra: true,
             state: PrinterState::Ready,
+            connection: PrinterConnection {
+                kind: ConnectionKind::Usb,
+                host: None,
+            },
         })
         .unwrap();
 
         assert_eq!(json["name"], "Zebra_ZD411");
         assert_eq!(json["isZebra"], true);
+        assert_eq!(
+            json["connection"],
+            serde_json::json!({ "kind": "usb", "host": null })
+        );
+    }
+
+    #[test]
+    fn a_network_connection_serialises_with_its_host() {
+        let json = serde_json::to_value(PrinterConnection {
+            kind: ConnectionKind::Network,
+            host: Some("192.0.2.14".into()),
+        })
+        .unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({ "kind": "network", "host": "192.0.2.14" })
+        );
     }
 
     #[test]

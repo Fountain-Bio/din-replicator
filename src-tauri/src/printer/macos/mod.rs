@@ -12,7 +12,10 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-use super::{fault, PrintReceipt, PrinterError, PrinterInfo, PrinterState, PrinterTransport};
+use super::{
+    fault, ConnectionKind, PrintReceipt, PrinterConnection, PrinterError, PrinterInfo,
+    PrinterState, PrinterTransport,
+};
 
 const LPSTAT: &str = "/usr/bin/lpstat";
 const LP: &str = "/usr/bin/lp";
@@ -35,12 +38,14 @@ impl PrinterTransport for Cups {
                     .get(&queue_key(&stanza.name))
                     .cloned()
                     .unwrap_or_default();
+                let connection = connection_from_uri(&device);
                 let description = description_from_detail(&stanza.detail).unwrap_or(device);
                 PrinterInfo {
                     is_zebra: super::looks_like_zebra(&[&stanza.name, &description]),
                     state: state_from_stanza(&stanza.status_line, &stanza.detail),
                     name: stanza.name,
                     description,
+                    connection,
                 }
             })
             .collect())
@@ -214,6 +219,115 @@ fn parse_devices(text: &str) -> HashMap<String, String> {
         .filter_map(|rest| rest.split_once(':'))
         .map(|(name, uri)| (queue_key(name.trim()), uri.trim().to_string()))
         .collect()
+}
+
+/// Reads a [`PrinterConnection`] out of a CUPS device URI.
+///
+/// `lpstat -v` prints one of these for every queue, such as
+/// `usb://Zebra%20Technologies/ZTC%20ZD411-300dpi%20ZPL?serial=...` for the
+/// wired Zebra ADR 0003 assumes, or `ipp://192.0.2.14/printers/zebra_lab`
+/// for one shared over the network. An empty string means CUPS had nothing to
+/// report, which is [`ConnectionKind::Other`] with no host, the same as a
+/// scheme this app does not recognise.
+fn connection_from_uri(uri: &str) -> PrinterConnection {
+    if uri.starts_with("usb://") {
+        return PrinterConnection {
+            kind: ConnectionKind::Usb,
+            host: None,
+        };
+    }
+
+    // Every scheme CUPS uses for a networked printer, whether it dials the
+    // printer directly (socket, lpd), asks it in IPP or HTTP, or discovers it
+    // by name (dnssd).
+    const NETWORK_SCHEMES: [&str; 7] = [
+        "ipp://",
+        "ipps://",
+        "http://",
+        "https://",
+        "socket://",
+        "lpd://",
+        "dnssd://",
+    ];
+
+    for scheme in NETWORK_SCHEMES {
+        if let Some(rest) = uri.strip_prefix(scheme) {
+            let host = if scheme == "dnssd://" {
+                dnssd_instance_name(rest)
+            } else {
+                Some(authority_host(rest))
+            };
+            return PrinterConnection {
+                kind: ConnectionKind::Network,
+                host,
+            };
+        }
+    }
+
+    PrinterConnection {
+        kind: ConnectionKind::Other,
+        host: None,
+    }
+}
+
+/// Reads the host out of a URI authority, which is everything between the
+/// `//` and the next `/`, `?`, or `#`.
+///
+/// An authority can carry user information and a port alongside the host,
+/// such as `user:pass@192.0.2.16:631`. Both are stripped: the host is what is
+/// left after the last `@` and before the first `:`.
+fn authority_host(rest: &str) -> String {
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let without_userinfo = authority.rsplit('@').next().unwrap_or(authority);
+    without_userinfo
+        .split(':')
+        .next()
+        .unwrap_or(without_userinfo)
+        .to_string()
+}
+
+/// Reads the service instance name out of a `dnssd://` authority.
+///
+/// CUPS names a Bonjour-discovered printer by its full DNS-SD service name,
+/// such as `Zebra%20ZD411._pdl-datastream._tcp.local.`: an instance name the
+/// operator chose, followed by the service type and domain. Only the instance
+/// name is a useful host to show, so this stops at the `._` that starts the
+/// service type and percent-decodes the rest.
+fn dnssd_instance_name(rest: &str) -> Option<String> {
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let decoded = percent_decode(authority);
+    let instance_end = decoded.find("._").unwrap_or(decoded.len());
+    let instance = decoded[..instance_end].to_string();
+    if instance.is_empty() {
+        None
+    } else {
+        Some(instance)
+    }
+}
+
+/// Decodes `%XX` escapes in a URI component. Bytes that are not valid UTF-8
+/// once decoded are dropped, which cannot happen for the instance names CUPS
+/// reports, since Bonjour names are text a person typed in.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let Ok(hex) = std::str::from_utf8(&bytes[index + 1..index + 3]) {
+                if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                    decoded.push(byte);
+                    index += 3;
+                    continue;
+                }
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 /// Reads the state out of one stanza.
@@ -478,5 +592,109 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
     #[test]
     fn silent_output_from_lp_leaves_the_job_id_unset() {
         assert_eq!(parse_job_id(""), None);
+    }
+
+    /// A real device URI from this machine, for the one Zebra wired by USB.
+    #[test]
+    fn a_usb_uri_is_a_usb_connection_with_no_host() {
+        assert_eq!(
+            connection_from_uri(
+                "usb://Zebra%20Technologies/ZTC%20ZD411-300dpi%20ZPL?serial=ABC123456789"
+            ),
+            PrinterConnection {
+                kind: ConnectionKind::Usb,
+                host: None,
+            }
+        );
+    }
+
+    #[test]
+    fn an_ipp_uri_gives_the_host_without_the_path() {
+        assert_eq!(
+            connection_from_uri("ipp://192.0.2.14/printers/zebra_lab"),
+            PrinterConnection {
+                kind: ConnectionKind::Network,
+                host: Some("192.0.2.14".into()),
+            }
+        );
+    }
+
+    /// The port belongs to the address, not the host, and sits between the
+    /// host and the path.
+    #[test]
+    fn an_ipp_uri_with_a_port_strips_it_from_the_host() {
+        assert_eq!(
+            connection_from_uri("ipp://192.0.2.16:631/printers/zebra_stockroom"),
+            PrinterConnection {
+                kind: ConnectionKind::Network,
+                host: Some("192.0.2.16".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn every_network_scheme_is_recognised() {
+        for scheme in ["ipps", "http", "https", "socket", "lpd"] {
+            let uri = format!("{scheme}://192.168.1.5/queue");
+            assert_eq!(
+                connection_from_uri(&uri),
+                PrinterConnection {
+                    kind: ConnectionKind::Network,
+                    host: Some("192.168.1.5".into()),
+                },
+                "scheme {scheme} should be a network connection"
+            );
+        }
+    }
+
+    /// A user information component sits between the scheme and the host, and
+    /// is not part of it.
+    #[test]
+    fn user_information_is_stripped_from_the_host() {
+        assert_eq!(
+            connection_from_uri("ipp://guest:guest@192.0.2.14:631/printers/zebra_lab"),
+            PrinterConnection {
+                kind: ConnectionKind::Network,
+                host: Some("192.0.2.14".into()),
+            }
+        );
+    }
+
+    /// The instance name is the part of a Bonjour service name an operator
+    /// chose, before the `._pdl-datastream._tcp.local.` that names the
+    /// service type. It is percent-encoded in the URI CUPS reports.
+    #[test]
+    fn a_dnssd_uri_gives_the_decoded_instance_name() {
+        assert_eq!(
+            connection_from_uri(
+                "dnssd://Zebra%20ZD411._pdl-datastream._tcp.local./?uuid=44444444-4444-4444-4444-000000000000"
+            ),
+            PrinterConnection {
+                kind: ConnectionKind::Network,
+                host: Some("Zebra ZD411".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn an_empty_uri_is_other_with_no_host() {
+        assert_eq!(
+            connection_from_uri(""),
+            PrinterConnection {
+                kind: ConnectionKind::Other,
+                host: None,
+            }
+        );
+    }
+
+    #[test]
+    fn an_unrecognised_scheme_is_other_with_no_host() {
+        assert_eq!(
+            connection_from_uri("smb://192.0.2.14/zebra"),
+            PrinterConnection {
+                kind: ConnectionKind::Other,
+                host: None,
+            }
+        );
     }
 }
