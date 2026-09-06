@@ -14,11 +14,14 @@ import { eyeReadable } from "@/lib/isbt128";
  * The check character in its box, the way ST-001 section 7.5 has it printed.
  *
  * The box is not decoration. It is how a label marks the one character that is
- * derived from the other thirteen rather than part of them.
+ * derived from the other thirteen rather than part of them. The box is what
+ * names it, so no screen has to spell out what it is; the title says so for
+ * anyone who has not met a DIN before.
  */
 export function CheckCharacterBox({ check, className }: { check: string; className?: string }) {
   return (
     <span
+      title="Check character"
       className={cn(
         "inline-flex size-6 items-center justify-center border border-foreground font-mono text-sm leading-none font-semibold",
         className,
@@ -30,18 +33,20 @@ export function CheckCharacterBox({ check, className }: { check: string; classNa
 }
 
 /**
- * The line that sits under a DIN: the flag characters and the boxed check
- * character, named so nobody has to remember which is which.
+ * The flag characters and the boxed check character, in the order the label
+ * prints them and with nothing written out.
+ *
+ * The caller sets the type size, so this can sit on the same baseline as a DIN
+ * of any size.
  */
 export function DinParts({ din, className }: { din: string; className?: string }) {
   const eye = eyeReadable(din);
   return (
-    <span className={cn("inline-flex items-center gap-2 text-sm text-muted-foreground", className)}>
-      <span>Flag characters</span>
-      <span className="font-mono tabular-nums text-foreground">{eye.flags}</span>
-      <span className="text-border">/</span>
-      <span>check character</span>
-      <CheckCharacterBox check={eye.check} />
+    <span className={cn("inline-flex items-baseline gap-2.5 font-mono", className)}>
+      <span title="Flag characters" className="tabular-nums text-muted-foreground">
+        {eye.flags}
+      </span>
+      <CheckCharacterBox check={eye.check} className="size-7 text-base" />
     </span>
   );
 }

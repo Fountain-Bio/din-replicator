@@ -19,7 +19,6 @@ import { DinParts } from "@/components/din";
 import { PrinterStatus } from "@/components/printer-status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { barcodePayload, eyeReadable } from "@/lib/isbt128";
 import { scanOptOutProps } from "@/lib/scanner";
 import type { PrinterInfo, PrinterState } from "@/lib/tauri/types";
@@ -116,51 +115,44 @@ export function ScanScreen({
           {state.din === null || eye === null ? (
             <ReadyPrompt />
           ) : (
-            // Three blocks that rearrange with the window. Stacked in one
-            // column when there is no room for anything else. On a medium
-            // window the DIN keeps the full width and the preview moves up
-            // beside the controls. On a wide window the preview takes a column
-            // of its own beside both.
-            <div className="mb-auto grid gap-5 @lg:grid-cols-[minmax(0,1fr)_15rem] @lg:gap-x-8 @4xl:grid-cols-[minmax(0,1fr)_19rem] @4xl:items-start @4xl:gap-x-12 @4xl:gap-y-8">
-              <div className="@lg:col-span-2 @4xl:col-span-1 @4xl:col-start-1 @4xl:row-start-1">
-                <p className="text-sm text-muted-foreground">Donation identification number</p>
-                {/* The three groups are separate spans rather than one string
-                    with spaces in it, because a monospace space is as wide as
-                    a digit and would pull the number apart. */}
-                <p
-                  className={cn(
-                    "mt-1 flex items-baseline gap-3 font-mono text-4xl leading-none font-semibold tracking-tight tabular-nums transition-opacity duration-200 @4xl:gap-4 @4xl:text-5xl",
-                    printing && "opacity-60",
-                  )}
-                >
-                  <span>{eye.fin}</span>
-                  <span>{eye.year}</span>
-                  <span>{eye.sequence}</span>
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-x-8 gap-y-2">
-                  <DinParts din={state.din} />
-                  <span className="font-mono text-xs text-muted-foreground">
+            // The DIN and the print action are two segments of one panel, so
+            // the number and the button that acts on it read as one piece of
+            // work. The preview sits under the panel on a narrow window and
+            // beside it once there is room.
+            <div className="mb-auto grid gap-5 @lg:grid-cols-[minmax(0,1fr)_15rem] @lg:items-start @lg:gap-x-8 @4xl:grid-cols-[minmax(0,1fr)_19rem] @4xl:gap-x-10">
+              <section className="divide-y divide-border overflow-hidden rounded-lg border bg-surface">
+                <div className="px-5 py-4">
+                  {/* The three groups of the DIN are separate spans rather than
+                      one string with spaces in it, because a monospace space is
+                      as wide as a digit and would pull the number apart. The
+                      flag characters and the boxed check character sit on the
+                      same baseline, in the order the label prints them. */}
+                  <p
+                    className={cn(
+                      "flex flex-wrap items-baseline gap-x-3 gap-y-2 font-mono text-4xl leading-none font-semibold tracking-tight tabular-nums transition-opacity duration-200 @4xl:gap-x-4 @4xl:text-5xl",
+                      printing && "opacity-60",
+                    )}
+                  >
+                    <span>{eye.fin}</span>
+                    <span>{eye.year}</span>
+                    <span>{eye.sequence}</span>
+                    <DinParts din={state.din} className="ml-2 text-base font-normal" />
+                  </p>
+                  <p className="mt-2.5 font-mono text-xs text-muted-foreground">
                     {barcodePayload(state.din)}
-                  </span>
+                  </p>
                 </div>
-              </div>
 
-              <div className="@lg:col-start-2 @lg:row-start-2 @4xl:row-span-2 @4xl:row-start-1">
-                <LabelPreview din={state.din} />
-              </div>
-
-              <div className="flex flex-col gap-5 @lg:col-start-1 @lg:row-start-2 @4xl:row-start-2">
-                <CopyCount
-                  value={state.copies}
-                  max={state.maxCopies}
-                  disabled={!idle}
-                  onChange={(copies) => dispatch({ type: "set-copies", copies })}
-                />
-
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4">
+                  <CopyCount
+                    value={state.copies}
+                    max={state.maxCopies}
+                    disabled={!idle}
+                    onChange={(copies) => dispatch({ type: "set-copies", copies })}
+                  />
                   <Button
                     size="lg"
-                    className="h-12 min-w-44 px-8 text-base active:scale-[0.985]"
+                    className="h-11 min-w-36 px-7 text-base active:scale-[0.985]"
                     disabled={!canPrint}
                     onClick={onPrint}
                   >
@@ -168,9 +160,9 @@ export function ScanScreen({
                     {printing ? "Printing" : "Print"}
                   </Button>
                   <Button
-                    variant="ghost"
+                    variant="link"
                     size="lg"
-                    className="h-12 px-5 text-sm text-muted-foreground hover:text-foreground"
+                    className="h-11 px-1 text-sm text-muted-foreground hover:text-foreground"
                     disabled={printing}
                     onClick={() => dispatch({ type: "clear" })}
                   >
@@ -182,24 +174,27 @@ export function ScanScreen({
                     </span>
                   )}
                 </div>
-              </div>
+              </section>
+
+              <LabelPreview din={state.din} />
             </div>
           )}
         </div>
       </div>
 
+      {/* The last strip of the screen, for the label whose barcode a scanner
+          will not read. The placeholder says what the box is for, so the strip
+          carries no heading of its own. */}
       <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-        <Label htmlFor="manual-din" className="text-sm font-normal text-muted-foreground">
-          Or type a DIN
-        </Label>
         <Input
           id="manual-din"
           {...scanOptOutProps}
           value={typedDin}
-          placeholder="W483626000011"
+          aria-label="Type a DIN"
+          placeholder="Type a DIN, such as W483626000011"
           autoComplete="off"
           spellCheck={false}
-          className="h-9 w-52 font-mono text-sm tracking-wide"
+          className="h-9 w-full max-w-[22rem] font-mono text-sm tracking-wide"
           onChange={(event) => setTypedDin(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
