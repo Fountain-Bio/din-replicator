@@ -252,7 +252,8 @@ skipped_stage() {
 # Mac can sign with, one name per line.
 developer_id_identities() {
   security find-identity -v -p codesigning 2>/dev/null \
-    | sed -n 's/^ *[0-9][0-9]*) [0-9A-Fa-f]* "\(Developer ID Application:.*\)"$/\1/p'
+    | sed -n 's/^ *[0-9][0-9]*) [0-9A-Fa-f]* "\(Developer ID Application:.*\)"$/\1/p' \
+    | awk '!seen[$0]++'
 }
 
 banner "DIN Replicator release signing"
