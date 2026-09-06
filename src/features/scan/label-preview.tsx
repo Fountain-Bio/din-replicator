@@ -96,24 +96,32 @@ export function LabelPreview({ din }: { din: string }) {
   const failure = plan.ok ? error : plan.reason;
 
   return (
-    <div className="flex w-[300px] flex-col gap-2">
-      <p className="text-sm text-muted-foreground">The replica as it will print</p>
-      <div className="flex h-[130px] items-center justify-center rounded-md border-2 border-dashed bg-white">
+    <figure className="flex w-full max-w-60 flex-col gap-2 @4xl:max-w-[19rem]">
+      <figcaption className="text-sm text-muted-foreground">
+        The replica as it will print
+      </figcaption>
+      {/* The frame carries the label stock's own proportion, 1.75 by 0.75
+          inches, so what is on screen is the shape that comes off the roll. */}
+      <div className="flex aspect-7/3 w-full items-center justify-center overflow-hidden rounded-md border bg-white p-2">
         {failure !== null ? (
-          <p className="px-3 text-center text-xs text-destructive">
+          <p className="px-2 text-center text-xs text-destructive">
             The preview could not be drawn. {failure}
           </p>
         ) : imageUrl === null ? (
-          <p className="text-xs text-muted-foreground">Drawing the label</p>
+          <p className="text-xs text-neutral-500">Drawing the label</p>
         ) : (
-          <img src={imageUrl} alt={`Replica label for ${din}`} className="max-h-full max-w-full" />
+          <img
+            src={imageUrl}
+            alt={`Replica label for ${din}`}
+            className="max-h-full max-w-full animate-in fade-in duration-200"
+          />
         )}
       </div>
       {plan.ok && (
-        <p className="text-xs text-muted-foreground">
-          On the printer the barcode is {plan.symbolWidthMm.toFixed(1)} mm wide.
+        <p className="text-xs text-muted-foreground tabular-nums">
+          The barcode prints {plan.symbolWidthMm.toFixed(1)} mm wide.
         </p>
       )}
-    </div>
+    </figure>
   );
 }

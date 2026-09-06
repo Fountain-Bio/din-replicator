@@ -29,12 +29,30 @@ export const PRINTER_FAULT = {
   other: "printer-error",
 } as const;
 
+/**
+ * How a printer is attached to this computer.
+ *
+ * `host` carries the address a network printer answers on, and is null for a
+ * USB printer or a network printer whose address the operating system does not
+ * give. `other` covers every attachment the app cannot name.
+ */
+export interface PrinterConnection {
+  kind: "usb" | "network" | "other";
+  host: string | null;
+}
+
 /** One printer as the operating system lists it. */
 export interface PrinterInfo {
   /** The printer's name. Every other printer call takes this string. */
   name: string;
   /** What the operating system says the printer is. Can be empty. */
   description: string;
+  /**
+   * How the printer is attached. Absent until every platform's Rust side fills
+   * it in; `printerConnection` in `@/lib/printer/connection` reads the same
+   * shape out of `description` while that is the case.
+   */
+  connection?: PrinterConnection;
   /**
    * True when the operating system's name or description for this printer says
    * it is the label printer model the app prints replicas on. The UI puts
@@ -109,6 +127,15 @@ export interface PrintRunQuery {
   offset?: number;
 }
 
+/**
+ * How the printer puts ink on the label stock.
+ *
+ * Thermal transfer melts a ribbon onto the stock. Direct thermal has no
+ * ribbon and darkens heat-sensitive stock instead. The two need different
+ * label stock, so this follows what is loaded in the printer.
+ */
+export type PrintMethod = "thermalTransfer" | "directThermal";
+
 /** The operator's saved choices. */
 export interface Settings {
   /** The name of the printer replicas go to, or null when nobody has chosen one. */
@@ -117,6 +144,12 @@ export interface Settings {
   verifyAfterPrint: boolean;
   /** The largest copy count the scan screen allows. */
   maxCopies: number;
+  /** Which of the two printing methods the loaded label stock needs. */
+  printMethod: PrintMethod;
+  /** How much heat the printer uses, from 0 to 30. Higher prints darker. */
+  darkness: number;
+  /** How fast the label leaves the printer, in inches per second, from 2 to 6. */
+  speedIps: number;
 }
 
 /** Where the print log lives on this machine, or why there is none. */

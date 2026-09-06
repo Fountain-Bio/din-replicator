@@ -12,10 +12,10 @@
  */
 
 import { useCallback, useEffect, useReducer, useState } from "react";
+import { cn } from "cn";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { printerStateText } from "@/components/printer-status";
 import { Toaster } from "@/components/ui/sonner";
-import { printerStateText } from "@/components/printer-state-badge";
 import { HistoryScreen } from "@/features/history/history-screen";
 import { ScanScreen } from "@/features/scan/scan-screen";
 import { initialScanState, scanReducer } from "@/features/scan/scan-state";
@@ -23,6 +23,7 @@ import { SettingsScreen } from "@/features/settings/settings-screen";
 import { barcodePayload } from "@/lib/isbt128";
 import { buildReplicaZpl } from "@/lib/label/replica-zpl";
 import { useScanListener } from "@/lib/scanner";
+import { FALLBACK_SETTINGS } from "@/lib/settings";
 import {
   asCommandError,
   getSettings,
@@ -37,7 +38,7 @@ import {
 import type { PrinterInfo, PrinterState, Settings, StorageInfo } from "@/lib/tauri/types";
 
 /** The copy count ceiling used until the saved settings arrive. */
-const FALLBACK_MAX_COPIES = 20;
+const FALLBACK_MAX_COPIES = FALLBACK_SETTINGS.maxCopies;
 
 /** How often the scan screen re-reads the printer's state, in milliseconds. */
 const PRINTER_POLL_MS = 15_000;
@@ -102,14 +103,25 @@ export default function App() {
   useEffect(() => {
     getSettings().then(setSettings, (reason: unknown) => {
       toast.error(`The saved settings could not be read. ${asCommandError(reason).message}`);
-      setSettings({
-        selectedPrinter: null,
-        verifyAfterPrint: true,
-        maxCopies: FALLBACK_MAX_COPIES,
-      });
+      setSettings(FALLBACK_SETTINGS);
     });
     void loadPrinters();
   }, [loadPrinters]);
+
+  // The window is an application window, not a web page. The webview's own
+  // menu offers Reload and Inspect Element, which do nothing an operator wants
+  // and can throw away a loaded DIN. Refusing the event here leaves the app's
+  // own context menus working, because those call preventDefault themselves
+  // before this listener ever sees the event. Development builds keep the
+  // webview menu, because that is where Inspect Element is needed.
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      return;
+    }
+    const refuse = (event: MouseEvent) => event.preventDefault();
+    document.addEventListener("contextmenu", refuse);
+    return () => document.removeEventListener("contextmenu", refuse);
+  }, []);
 
   // A print run that cannot be recorded must not happen, so the state of the
   // print log is read again every time the operator comes back to the scan
@@ -226,7 +238,15 @@ export default function App() {
     const printerName = settings.selectedPrinter;
     const copies = state.copies;
     const payload = barcodePayload(din);
-    const zpl = buildReplicaZpl({ din, copies });
+    const zpl = buildReplicaZpl({
+      din,
+      copies,
+      printSettings: {
+        printMethod: settings.printMethod,
+        darkness: settings.darkness,
+        speedIps: settings.speedIps,
+      },
+    });
     dispatch({ type: "print-started" });
 
     let jobId: string | null;
@@ -317,55 +337,65 @@ export default function App() {
   }, []);
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 p-6">
-      <header className="flex items-center gap-6 border-b pb-3">
-        <h1 className="text-lg font-semibold">DIN Replicator</h1>
-        <nav className="flex gap-1">
-          {SCREENS.map((entry) => (
-            <Button
-              key={entry.id}
-              variant={screen === entry.id ? "secondary" : "ghost"}
-              size="lg"
-              aria-current={screen === entry.id ? "page" : undefined}
-              onClick={() => setScreen(entry.id)}
-            >
-              {entry.label}
-            </Button>
-          ))}
-        </nav>
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
+      <header className="shrink-0 border-b bg-surface">
+        <div className="mx-auto flex w-full max-w-(--shell-width) items-center gap-6 px-5 py-3 sm:px-8">
+          <h1 className="text-sm font-semibold tracking-tight">DIN Replicator</h1>
+          <nav aria-label="Screens" className="flex items-center gap-1 rounded-lg bg-muted p-1">
+            {SCREENS.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                aria-current={screen === entry.id ? "page" : undefined}
+                onClick={() => setScreen(entry.id)}
+                className={cn(
+                  "h-8 rounded-md px-4 text-sm font-medium transition-colors duration-150 outline-none",
+                  "focus-visible:ring-3 focus-visible:ring-ring/50",
+                  screen === entry.id
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {entry.label}
+              </button>
+            ))}
+          </nav>
+        </div>
       </header>
 
-      <main className="flex-1">
-        {screen === "scan" && (
-          <ScanScreen
-            state={state}
-            dispatch={dispatch}
-            selectedPrinterName={selectedPrinterName}
-            printer={selectedPrinter}
-            printerState={shownPrinterState}
-            blockedReason={blockedReason}
-            onPrint={() => void print()}
-            onGoToSettings={() => setScreen("settings")}
-          />
-        )}
-        {screen === "history" && <HistoryScreen onPrintAgain={printAgain} />}
-        {screen === "settings" &&
-          (settings === null ? (
-            <p className="text-base text-muted-foreground">Reading the saved settings</p>
-          ) : (
-            <SettingsScreen
-              settings={settings}
-              printers={printers}
-              loadingPrinters={loadingPrinters}
-              storage={storage}
-              storageError={storageError}
-              onChange={(next) => void applySettings(next)}
-              onRefreshPrinters={() => {
-                setLoadingPrinters(true);
-                void loadPrinters();
-              }}
+      <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="mx-auto h-full w-full max-w-(--shell-width) px-5 py-6 sm:px-8 sm:py-8">
+          {screen === "scan" && (
+            <ScanScreen
+              state={state}
+              dispatch={dispatch}
+              selectedPrinterName={selectedPrinterName}
+              printer={selectedPrinter}
+              printerState={shownPrinterState}
+              blockedReason={blockedReason}
+              onPrint={() => void print()}
+              onGoToSettings={() => setScreen("settings")}
             />
-          ))}
+          )}
+          {screen === "history" && <HistoryScreen onPrintAgain={printAgain} />}
+          {screen === "settings" &&
+            (settings === null ? (
+              <p className="text-sm text-muted-foreground">Reading the saved settings</p>
+            ) : (
+              <SettingsScreen
+                settings={settings}
+                printers={printers}
+                loadingPrinters={loadingPrinters}
+                storage={storage}
+                storageError={storageError}
+                onChange={(next) => void applySettings(next)}
+                onRefreshPrinters={() => {
+                  setLoadingPrinters(true);
+                  void loadPrinters();
+                }}
+              />
+            ))}
+        </div>
       </main>
 
       <Toaster position="bottom-right" richColors />

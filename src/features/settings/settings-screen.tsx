@@ -1,25 +1,37 @@
 /**
  * Which printer replicas go to, whether the app asks for a verification scan,
- * how many replicas one print run may produce, and where the print log lives.
+ * how many replicas one print run may produce, how the printer marks the label
+ * stock, and where the print log lives.
  *
  * Every change is saved through `set_settings` as soon as it is made, so there
  * is no Save button to forget.
+ *
+ * The screen keeps one narrow column. Each group of settings is a titled
+ * section with the same spacing, so an operator scanning down the page can
+ * tell where one decision ends and the next begins.
  */
 
-import { RefreshCwIcon } from "lucide-react";
-import { PrinterStateBadge } from "@/components/printer-state-badge";
+import { ChevronDownIcon, RefreshCwIcon } from "lucide-react";
+import { PrinterStatus } from "@/components/printer-status";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { MAX_COPIES } from "@/lib/label/replica-zpl";
-import type { PrinterInfo, Settings, StorageInfo } from "@/lib/tauri/types";
+import { connectionText, printerConnection } from "@/lib/printer/connection";
+import { clampWhole, DARKNESS_RANGE, SPEED_IPS_RANGE } from "@/lib/settings";
+import type { PrinterInfo, PrintMethod, Settings, StorageInfo } from "@/lib/tauri/types";
 
 export interface SettingsScreenProps {
   settings: Settings;
@@ -34,6 +46,26 @@ export interface SettingsScreenProps {
   onRefreshPrinters: () => void;
 }
 
+/** How each printing method reads, and the one line that explains it. */
+const PRINT_METHODS: Array<{ value: PrintMethod; label: string; explanation: string }> = [
+  {
+    value: "thermalTransfer",
+    label: "Thermal transfer",
+    explanation: "Melts a ribbon onto the label stock.",
+  },
+  {
+    value: "directThermal",
+    label: "Direct thermal",
+    explanation: "No ribbon. The heat darkens heat-sensitive label stock.",
+  },
+];
+
+/** One printer as a line in the picker: its name, then how it is attached. */
+function printerOptionText(printer: PrinterInfo): string {
+  const connection = connectionText(printerConnection(printer));
+  return connection.length === 0 ? printer.name : `${printer.name} · ${connection}`;
+}
+
 export function SettingsScreen({
   settings,
   printers,
@@ -45,41 +77,62 @@ export function SettingsScreen({
 }: SettingsScreenProps) {
   // Settings can name a printer the operating system no longer lists, which is
   // what a renamed or unplugged printer looks like from here.
-  const savedPrinterMissing =
-    settings.selectedPrinter !== null &&
-    !printers.some((printer) => printer.name === settings.selectedPrinter);
+  const chosenPrinter = printers.find((printer) => printer.name === settings.selectedPrinter);
+  const savedPrinterMissing = settings.selectedPrinter !== null && chosenPrinter === undefined;
+
+  // Only a label printer produces a readable replica, so those come first.
+  const byName = (a: PrinterInfo, b: PrinterInfo) => a.name.localeCompare(b.name);
+  const labelPrinters = printers.filter((printer) => printer.isZebra).sort(byName);
+  const otherPrinters = printers.filter((printer) => !printer.isZebra).sort(byName);
+
+  const currentMethod =
+    PRINT_METHODS.find((method) => method.value === settings.printMethod) ?? PRINT_METHODS[0]!;
 
   return (
-    <div className="flex max-w-2xl flex-col gap-8">
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center gap-3">
-          <Label htmlFor="printer" className="text-base">
-            Printer
-          </Label>
+    <div className="mx-auto flex w-full max-w-[44rem] flex-col gap-8 pb-12">
+      <Section
+        title="Printer"
+        description="Replicas go to this printer. Only a label printer prints them correctly."
+        action={
           <Button variant="ghost" size="sm" onClick={onRefreshPrinters} disabled={loadingPrinters}>
-            <RefreshCwIcon />
+            <RefreshCwIcon className={loadingPrinters ? "animate-spin" : undefined} />
             {loadingPrinters ? "Reading" : "Read again"}
           </Button>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Select
+            value={settings.selectedPrinter ?? ""}
+            onValueChange={(name) => onChange({ ...settings, selectedPrinter: name })}
+          >
+            <SelectTrigger id="printer" className="h-10 w-full max-w-sm">
+              <SelectValue placeholder="Choose a printer" />
+            </SelectTrigger>
+            <SelectContent>
+              {labelPrinters.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Label printers</SelectLabel>
+                  {labelPrinters.map((printer) => (
+                    <SelectItem key={printer.name} value={printer.name}>
+                      {printerOptionText(printer)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+              {otherPrinters.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Other printers</SelectLabel>
+                  {otherPrinters.map((printer) => (
+                    <SelectItem key={printer.name} value={printer.name}>
+                      {printerOptionText(printer)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+            </SelectContent>
+          </Select>
+          {chosenPrinter !== undefined && <PrinterStatus state={chosenPrinter.state} />}
         </div>
-        <p className="text-sm text-muted-foreground">
-          Replicas go to this printer. Only a label printer prints them correctly.
-        </p>
-        <Select
-          value={settings.selectedPrinter ?? ""}
-          onValueChange={(name) => onChange({ ...settings, selectedPrinter: name })}
-        >
-          <SelectTrigger id="printer" className="w-full max-w-md">
-            <SelectValue placeholder="Choose a printer" />
-          </SelectTrigger>
-          <SelectContent>
-            {printers.map((printer) => (
-              <SelectItem key={printer.name} value={printer.name}>
-                {printer.name}
-                {printer.isZebra ? " (label printer)" : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         {savedPrinterMissing && (
           <p className="text-sm text-destructive">
@@ -94,90 +147,199 @@ export function SettingsScreen({
             printer settings first.
           </p>
         )}
+      </Section>
 
-        <ul className="flex flex-col gap-2">
-          {printers.map((printer) => (
-            <li key={printer.name} className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="font-medium">{printer.name}</span>
-              {printer.description.length > 0 && (
-                <span className="text-muted-foreground">{printer.description}</span>
-              )}
-              <PrinterStateBadge state={printer.state} />
-            </li>
-          ))}
-        </ul>
-      </section>
+      <Separator />
 
-      <section className="flex flex-col gap-3">
-        <Label htmlFor="verify" className="flex items-center gap-3 text-base">
-          <input
+      <Section
+        title="Verification"
+        description="The app compares the scan of a fresh replica against the barcode payload it printed, and writes the result to the print log."
+      >
+        <Label
+          htmlFor="verify"
+          className="flex w-full items-center justify-between gap-6 text-sm font-normal"
+        >
+          Ask for a verification scan after every print run
+          <Switch
             id="verify"
-            type="checkbox"
-            className="size-5 accent-primary"
             checked={settings.verifyAfterPrint}
+            onCheckedChange={(checked) => onChange({ ...settings, verifyAfterPrint: checked })}
+          />
+        </Label>
+      </Section>
+
+      <Separator />
+
+      <Section
+        title="Copy count"
+        description={`The most replicas the scan screen lets one print run produce, up to ${MAX_COPIES}.`}
+      >
+        <div className="flex items-center gap-3">
+          <Input
+            id="max-copies"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={MAX_COPIES}
+            value={settings.maxCopies}
+            className="h-10 w-24 text-base tabular-nums"
             onChange={(event) =>
-              onChange({ ...settings, verifyAfterPrint: event.currentTarget.checked })
+              onChange({
+                ...settings,
+                maxCopies: clampWhole(Number(event.currentTarget.value), {
+                  min: 1,
+                  max: MAX_COPIES,
+                }),
+              })
             }
           />
-          Ask for a verification scan after every print run
-        </Label>
-        <p className="text-sm text-muted-foreground">
-          The app compares the scan of a fresh replica against the barcode payload it printed, and
-          writes the result to the print log.
-        </p>
-      </section>
+          <Label htmlFor="max-copies" className="text-sm font-normal text-muted-foreground">
+            replicas per print run
+          </Label>
+        </div>
+      </Section>
 
-      <section className="flex flex-col gap-3">
-        <Label htmlFor="max-copies" className="text-base">
-          Largest copy count
-        </Label>
-        <p className="text-sm text-muted-foreground">
-          The most replicas the scan screen lets one print run produce, up to {MAX_COPIES}.
-        </p>
-        <Input
-          id="max-copies"
-          type="number"
-          inputMode="numeric"
-          min={1}
-          max={MAX_COPIES}
-          value={settings.maxCopies}
-          className="h-10 w-28 text-base tabular-nums"
-          onChange={(event) => {
-            const asked = Number(event.currentTarget.value);
-            if (!Number.isFinite(asked)) {
-              return;
-            }
-            const maxCopies = Math.min(Math.max(Math.round(asked), 1), MAX_COPIES);
-            onChange({ ...settings, maxCopies });
-          }}
-        />
-      </section>
+      <Separator />
 
-      <section className="flex flex-col gap-2 border-t pt-6">
-        <h2 className="text-base font-medium">Print log</h2>
+      {/* The three printing values match the label stock and the printer that
+          are already in use, so this section stays shut until someone has a
+          reason to open it. */}
+      <Collapsible className="group/printing">
+        <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+          <h2 className="text-base font-semibold tracking-tight">Printing</h2>
+          <ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]/printing:rotate-180" />
+          <span className="ml-auto text-sm text-muted-foreground tabular-nums">
+            {currentMethod.label} · darkness {settings.darkness} · {settings.speedIps} ips
+          </span>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="flex flex-col gap-6 pt-5">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="print-method" className="text-sm font-normal">
+              Print method
+            </Label>
+            <Select
+              value={settings.printMethod}
+              onValueChange={(value) =>
+                onChange({ ...settings, printMethod: value as PrintMethod })
+              }
+            >
+              <SelectTrigger id="print-method" className="h-10 w-full max-w-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRINT_METHODS.map((method) => (
+                  <SelectItem key={method.value} value={method.value}>
+                    {method.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">{currentMethod.explanation}</p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="darkness" className="text-sm font-normal">
+              Darkness
+            </Label>
+            <Input
+              id="darkness"
+              type="number"
+              inputMode="numeric"
+              min={DARKNESS_RANGE.min}
+              max={DARKNESS_RANGE.max}
+              value={settings.darkness}
+              className="h-10 w-24 text-base tabular-nums"
+              onChange={(event) =>
+                onChange({
+                  ...settings,
+                  darkness: clampWhole(Number(event.currentTarget.value), DARKNESS_RANGE),
+                })
+              }
+            />
+            <p className="text-sm text-muted-foreground">
+              {DARKNESS_RANGE.min} to {DARKNESS_RANGE.max}. Higher is darker. Raise it when replicas
+              look faded.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="speed-ips" className="text-sm font-normal">
+              Speed
+            </Label>
+            <Input
+              id="speed-ips"
+              type="number"
+              inputMode="numeric"
+              min={SPEED_IPS_RANGE.min}
+              max={SPEED_IPS_RANGE.max}
+              value={settings.speedIps}
+              className="h-10 w-24 text-base tabular-nums"
+              onChange={(event) =>
+                onChange({
+                  ...settings,
+                  speedIps: clampWhole(Number(event.currentTarget.value), SPEED_IPS_RANGE),
+                })
+              }
+            />
+            <p className="text-sm text-muted-foreground">
+              Inches per second, {SPEED_IPS_RANGE.min} to {SPEED_IPS_RANGE.max}. Slower prints
+              darker and sharper.
+            </p>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <Separator />
+
+      <footer className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+        <span>Print log</span>
         {storageError !== null ? (
-          <p className="text-sm text-destructive">
+          <span className="text-destructive">
             Where the print log lives could not be read. {storageError}
-          </p>
+          </span>
         ) : storage === null ? (
-          <p className="text-sm text-muted-foreground">Reading where the print log lives</p>
+          <span>Reading where the print log lives</span>
         ) : storage.unavailable !== null ? (
-          <p className="text-sm text-destructive">
-            Printing is disabled because the print log cannot be opened: {storage.unavailable}
-          </p>
+          <span className="text-destructive">
+            Printing is off because the print log cannot be opened: {storage.unavailable}
+          </span>
         ) : (
           <>
-            <p className="font-mono text-sm break-all text-muted-foreground">
-              {storage.databasePath}
-            </p>
-            <p className="text-sm text-muted-foreground">
+            <span className="font-mono text-xs break-all">{storage.databasePath}</span>
+            <span>
               {storage.machineWide
                 ? "Every login on this computer shares one history."
                 : "This history covers only the login you are using now. The app could not write to the machine-wide directory."}
-            </p>
+            </span>
           </>
         )}
-      </section>
+      </footer>
     </div>
+  );
+}
+
+/** One group of settings: a title, a line saying what it is for, and controls. */
+function Section({
+  title,
+  description,
+  action,
+  children,
+}: {
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-3">
+          <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+          {action}
+        </div>
+        <p className="max-w-prose text-sm text-muted-foreground">{description}</p>
+      </div>
+      {children}
+    </section>
   );
 }

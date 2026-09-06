@@ -2,12 +2,23 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: "Geist Variable", sans-serif;
+  /* Only a DIN, a barcode payload, or a file path is set in this face. */
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
+  /* The one non-neutral colour: a print run that verified, a printer that is
+     ready. Everything that went wrong uses --destructive instead. */
+  --color-ok: var(--ok);
+  --color-ok-surface: var(--ok-surface);
+  /* The layer headers and toolbars sit on, one step off the content surface. */
+  --color-surface: var(--surface);
+  /* Strong ease-out. The built-in CSS curves are too weak to read as intended. */
+  --ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -73,6 +84,13 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
+  /* The widest the content column grows. The window can be wider; the work
+     stays in one column so a 1920 pixel display does not stretch a table row
+     into something nobody can follow across. */
+  --shell-width: 76rem;
+  --ok: oklch(0.52 0.12 155);
+  --ok-surface: oklch(0.965 0.028 155);
+  --surface: oklch(0.985 0 0);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -102,6 +120,9 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --ok: oklch(0.78 0.15 155);
+  --ok-surface: oklch(0.28 0.05 155);
+  --surface: oklch(0.185 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -123,8 +144,45 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* The app is one window with its own scroll regions. Nothing here bounces
+       past its edges the way a web page does. */
+    overscroll-behavior: none;
   }
   html {
     @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    text-size-adjust: 100%;
+  }
+
+  /* The parts of the window the app does not draw itself still belong to it.
+     Selection, the caret, and the scrollbars come from the same palette. */
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 16%, transparent);
+    color: var(--foreground);
+  }
+  input,
+  textarea {
+    caret-color: var(--primary);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 22%, transparent) transparent;
+  }
+
+  /* A DIN, a copy count, and a clock time all line up column by column. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Motion here reports a state change and never decorates. Someone who asks for
+   less of it keeps the fades and loses the movement. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
