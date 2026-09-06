@@ -1,5 +1,6 @@
 // Tauri entry point. Commands are registered here; the work lives in the
 // printer, log, and settings modules.
+pub mod command_error;
 mod commands;
 pub mod log;
 pub mod platform;
@@ -14,8 +15,12 @@ pub fn run() {
         .setup(|app| {
             // The print log is one SQLite file per machine (ADR 0004). It is
             // opened once here and shared by every command that touches it.
-            let store = log::Store::open_for_app(app.handle())?;
-            app.manage(store);
+            //
+            // A machine that will not let the app open a log is not a reason
+            // to refuse to start. The window opens either way and every log
+            // command answers with the reason, so the operator reads what is
+            // wrong instead of watching the app fail to appear.
+            app.manage(log::LogState::for_app(app.handle()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

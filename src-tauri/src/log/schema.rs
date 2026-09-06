@@ -7,7 +7,7 @@
 //! published entry. Add a new one to the end instead, or a machine that
 //! already ran the old text will not pick the change up.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 
 /// The migrations, oldest first. Entry `n` is schema version `n + 1`.
 const MIGRATIONS: &[&str] = &[
@@ -49,14 +49,25 @@ const MIGRATIONS: &[&str] = &[
 
 /// Brings `connection` up to the newest schema version.
 ///
-/// Each migration and the row that records it go in together, in one
-/// transaction. A migration that fails part way leaves the database at the
-/// version it started on, so the next attempt runs the whole entry again.
+/// Reading the applied versions and applying the missing ones happen inside
+/// one `BEGIN IMMEDIATE` transaction. Immediate takes the database's write
+/// lock at the start rather than at the first write, which matters on a fresh
+/// machine: two staff accounts can be logged in and both start the app for the
+/// first time. Both would otherwise read version 0 and then run
+/// `CREATE TABLE print_runs`, and the second one would fail. With the write
+/// lock held from the start, the second app waits out the busy timeout, then
+/// reads the versions the first one wrote and finds nothing left to do.
+///
+/// Every migration and the rows that record them go in together, so a
+/// migration that fails part way leaves the database at the version it
+/// started on and the next attempt runs it again.
 pub fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
-    connection
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+    transaction
         .execute_batch("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")?;
 
-    let applied: i64 = connection.query_row(
+    let applied: i64 = transaction.query_row(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version",
         [],
         |row| row.get(0),
@@ -68,16 +79,14 @@ pub fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
             continue;
         }
 
-        let transaction = connection.transaction()?;
         transaction.execute_batch(statements)?;
         transaction.execute(
             "INSERT INTO schema_version (version) VALUES (?1)",
             [version],
         )?;
-        transaction.commit()?;
     }
 
-    Ok(())
+    transaction.commit()
 }
 
 #[cfg(test)]

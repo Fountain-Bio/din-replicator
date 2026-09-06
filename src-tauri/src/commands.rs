@@ -5,13 +5,15 @@
 //! commands fail with a [`PrinterError`] and print log commands with a
 //! [`LogError`].
 //!
-//! The print log is Tauri managed state: one open database opened at startup,
-//! which every command below takes as `log`.
+//! The print log is Tauri managed state, taken by every log command below as
+//! `log`. It holds one database opened at startup. When that open failed, the
+//! app still runs and each of those commands returns the `storage_unavailable`
+//! code with the reason, which the UI shows while it refuses to print.
 
 use tauri::State;
 
 use crate::log::storage::StorageInfo;
-use crate::log::{LogError, NewPrintRun, NewVerification, PrintRun, PrintRunQuery, Store};
+use crate::log::{LogError, LogState, NewPrintRun, NewVerification, PrintRun, PrintRunQuery};
 use crate::printer::{
     self, PrintReceipt, PrinterError, PrinterInfo, PrinterState, PrinterTransport,
 };
@@ -64,8 +66,11 @@ pub fn print_zpl(name: String, zpl: String, title: String) -> Result<PrintReceip
 /// count, the printer, the job id, and the ZPL. The log fills in the operator,
 /// the machine name, and the time.
 #[tauri::command]
-pub fn record_print_run(log: State<'_, Store>, input: NewPrintRun) -> Result<PrintRun, LogError> {
-    log.record_print_run(input)
+pub fn record_print_run(
+    log: State<'_, LogState>,
+    input: NewPrintRun,
+) -> Result<PrintRun, LogError> {
+    log.store()?.record_print_run(input)
 }
 
 /// Records the scan of a freshly printed replica against the print run that
@@ -75,10 +80,10 @@ pub fn record_print_run(log: State<'_, Store>, input: NewPrintRun) -> Result<Pri
 /// barcode payload is ISBT 128 work and lives in `src/lib/isbt128/`.
 #[tauri::command]
 pub fn record_verification(
-    log: State<'_, Store>,
+    log: State<'_, LogState>,
     input: NewVerification,
 ) -> Result<PrintRun, LogError> {
-    log.record_verification(input)
+    log.store()?.record_verification(input)
 }
 
 /// The print runs the history screen shows, newest first.
@@ -87,28 +92,28 @@ pub fn record_verification(
 /// typed. `query.limit` and `query.offset` page through the result.
 #[tauri::command]
 pub fn list_print_runs(
-    log: State<'_, Store>,
+    log: State<'_, LogState>,
     query: PrintRunQuery,
 ) -> Result<Vec<PrintRun>, LogError> {
-    log.list_print_runs(query)
+    log.store()?.list_print_runs(query)
 }
 
 /// One print run by id, for the screen that shows a single print run.
 #[tauri::command]
-pub fn get_print_run(log: State<'_, Store>, id: i64) -> Result<PrintRun, LogError> {
-    log.print_run(id)
+pub fn get_print_run(log: State<'_, LogState>, id: i64) -> Result<PrintRun, LogError> {
+    log.store()?.print_run(id)
 }
 
 /// The settings this machine remembers, with defaults for anything never set.
 #[tauri::command]
-pub fn get_settings(log: State<'_, Store>) -> Result<Settings, LogError> {
-    log.settings()
+pub fn get_settings(log: State<'_, LogState>) -> Result<Settings, LogError> {
+    log.store()?.settings()
 }
 
 /// Replaces the settings this machine remembers, and returns what was stored.
 #[tauri::command]
-pub fn set_settings(log: State<'_, Store>, settings: Settings) -> Result<Settings, LogError> {
-    log.set_settings(settings)
+pub fn set_settings(log: State<'_, LogState>, settings: Settings) -> Result<Settings, LogError> {
+    log.store()?.set_settings(settings)
 }
 
 /// Which file holds the print log, and whether it is the machine-wide one.
@@ -117,7 +122,12 @@ pub fn set_settings(log: State<'_, Store>, settings: Settings) -> Result<Setting
 /// could not write to the machine-wide directory and fell back to a per-user
 /// file, so the history screen shows only this login's print runs. The UI says
 /// so, and the path tells a support person where to look.
+///
+/// When `unavailable` is set there is no print log at all and it holds the
+/// reason. The UI shows that reason and refuses to print, because a print run
+/// that cannot be recorded must not happen. This command answers in every
+/// case, so the UI can always say what is wrong.
 #[tauri::command]
-pub fn storage_info(log: State<'_, Store>) -> StorageInfo {
+pub fn storage_info(log: State<'_, LogState>) -> StorageInfo {
     log.storage_info()
 }

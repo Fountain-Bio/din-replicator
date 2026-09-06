@@ -10,8 +10,9 @@
 
 use std::fmt;
 
-use serde::ser::SerializeStruct;
-use serde::{Serialize, Serializer};
+use serde::Serialize;
+
+use crate::command_error::CommandError;
 
 // Platform code lives in a directory named for the platform.
 #[cfg(target_os = "macos")]
@@ -75,6 +76,7 @@ impl fmt::Display for PrinterState {
 
 /// One printer as the operating system lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrinterInfo {
     /// The queue name. This is what every other call in this module takes.
     pub name: String,
@@ -89,6 +91,7 @@ pub struct PrinterInfo {
 
 /// What the queue gave back after it took a print run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintReceipt {
     /// The queue's own job identifier. Some queues do not report one.
     pub job_id: Option<String>,
@@ -96,8 +99,8 @@ pub struct PrintReceipt {
 
 /// Everything that can go wrong while reading or using a print queue.
 ///
-/// Serialises as `{"code": "...", "message": "..."}`. The UI branches on
-/// `code` and shows `message`.
+/// Serialises as `{"code": "...", "message": "..."}`, the shape every command
+/// error shares. See [`crate::command_error`].
 #[derive(Debug, thiserror::Error)]
 pub enum PrinterError {
     /// No queue on this machine goes by that name.
@@ -116,10 +119,10 @@ pub enum PrinterError {
     SpoolFailed(String),
 }
 
-impl PrinterError {
+impl CommandError for PrinterError {
     /// The stable string the UI branches on. Message text may change; these
     /// do not.
-    pub fn code(&self) -> &'static str {
+    fn code(&self) -> &'static str {
         match self {
             Self::PrinterNotFound(_) => "printer_not_found",
             Self::PrinterNotReady(_) => "printer_not_ready",
@@ -129,14 +132,7 @@ impl PrinterError {
     }
 }
 
-impl Serialize for PrinterError {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut object = serializer.serialize_struct("PrinterError", 2)?;
-        object.serialize_field("code", self.code())?;
-        object.serialize_field("message", &self.to_string())?;
-        object.end()
-    }
-}
+crate::serialize_as_command_error!(PrinterError);
 
 /// Reading and using the print queues on one machine.
 ///
@@ -218,6 +214,30 @@ mod tests {
             "Brother_HL_L2460DW",
             "ipp://192.0.2.16/printers/brother_stockroom_l2460"
         ]));
+    }
+
+    #[test]
+    fn printers_serialise_in_camel_case() {
+        let json = serde_json::to_value(PrinterInfo {
+            name: "Zebra_ZD411".into(),
+            description: "ZDesigner ZD411-300dpi ZPL".into(),
+            is_zebra: true,
+            state: PrinterState::Ready,
+        })
+        .unwrap();
+
+        assert_eq!(json["name"], "Zebra_ZD411");
+        assert_eq!(json["isZebra"], true);
+    }
+
+    #[test]
+    fn a_receipt_serialises_in_camel_case() {
+        let json = serde_json::to_value(PrintReceipt {
+            job_id: Some("42".into()),
+        })
+        .unwrap();
+
+        assert_eq!(json["jobId"], "42");
     }
 
     #[test]

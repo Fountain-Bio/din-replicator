@@ -16,9 +16,9 @@ use std::sync::{Mutex, MutexGuard};
 
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
-use serde::ser::SerializeStruct;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
+use crate::command_error::CommandError;
 use crate::settings::{self, Settings};
 use storage::{DatabaseLocation, StorageInfo};
 
@@ -37,13 +37,13 @@ const UNKNOWN: &str = "unknown";
 
 /// Everything that can go wrong while reading or writing the print log.
 ///
-/// Serialises as `{"code": "...", "message": "..."}`, the same shape the
-/// printer commands use. The UI branches on `code` and shows `message`.
+/// Serialises as `{"code": "...", "message": "..."}`, the shape every command
+/// error shares. See [`crate::command_error`].
 #[derive(Debug, thiserror::Error)]
 pub enum LogError {
-    /// Neither the machine-wide directory nor the per-user fallback would
-    /// take the database file, so there is nowhere to record print runs.
-    #[error("the print log has nowhere to live: {0}")]
+    /// The app has no database file to record print runs in. The message
+    /// says which directories it tried and what stopped it.
+    #[error("{0}")]
     StorageUnavailable(String),
     /// No print run in the log has that id.
     #[error("no print run in the log has the id {0}")]
@@ -57,10 +57,10 @@ pub enum LogError {
     DatabaseFailed(String),
 }
 
-impl LogError {
+impl CommandError for LogError {
     /// The stable string the UI branches on. Message text may change; these
     /// do not.
-    pub fn code(&self) -> &'static str {
+    fn code(&self) -> &'static str {
         match self {
             Self::StorageUnavailable(_) => "storage_unavailable",
             Self::PrintRunNotFound(_) => "print_run_not_found",
@@ -70,14 +70,7 @@ impl LogError {
     }
 }
 
-impl Serialize for LogError {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut object = serializer.serialize_struct("LogError", 2)?;
-        object.serialize_field("code", self.code())?;
-        object.serialize_field("message", &self.to_string())?;
-        object.end()
-    }
-}
+crate::serialize_as_command_error!(LogError);
 
 impl From<rusqlite::Error> for LogError {
     fn from(error: rusqlite::Error) -> Self {
@@ -102,7 +95,8 @@ pub struct PrintRun {
     pub job_id: Option<String>,
     /// The operating system user name of the operator who ran the print run.
     pub operator_user: String,
-    /// The name of the computer the print run came from.
+    /// The name of the computer the print run came from, as a person sees it
+    /// in the operating system's settings.
     pub hostname: String,
     /// When the print run went to the queue, as an RFC 3339 timestamp in UTC.
     pub printed_at: String,
@@ -169,6 +163,7 @@ pub struct PrintRunQuery {
 /// the connection sits behind a mutex and every command takes it in turn.
 /// Print runs happen at the speed a person presses a button, so the wait never
 /// shows.
+#[derive(Debug)]
 pub struct Store {
     connection: Mutex<Connection>,
     location: DatabaseLocation,
@@ -180,10 +175,20 @@ impl Store {
     pub fn open(location: DatabaseLocation) -> Result<Self, LogError> {
         let mut connection = Connection::open(&location.path).map_err(|error| {
             LogError::StorageUnavailable(format!(
-                "could not open {}: {error}",
+                "the print log could not be opened at {}: {error}",
                 location.path.display()
             ))
         })?;
+
+        // The file has just been created under the account that launched the
+        // app first. A machine-wide log has to stay writable by the next
+        // account to log in, so its rights are opened up the same way the
+        // directory's were. A per-user log is left alone: nobody else needs
+        // it.
+        if location.machine_wide {
+            let _ = crate::platform::make_shared(&location.path);
+        }
+
         Self::prepare(&mut connection)?;
 
         Ok(Self {
@@ -202,7 +207,8 @@ impl Store {
 
         let user_dir = app.path().app_data_dir().map_err(|error| {
             LogError::StorageUnavailable(format!(
-                "there is no per-user data directory to fall back to: {error}"
+                "the print log has nowhere to live: there is no per-user data \
+                 directory to fall back to: {error}"
             ))
         })?;
 
@@ -338,16 +344,7 @@ impl Store {
 
     /// Replaces the settings this machine remembers, and reads them back.
     pub fn set_settings(&self, chosen: Settings) -> Result<Settings, LogError> {
-        if chosen.max_copies == 0 {
-            return Err(LogError::InvalidInput(
-                "the largest copy count must be at least 1".into(),
-            ));
-        }
-        if chosen.max_copies > MAX_LIMIT {
-            return Err(LogError::InvalidInput(format!(
-                "the largest copy count must be {MAX_LIMIT} or fewer"
-            )));
-        }
+        chosen.check().map_err(LogError::InvalidInput)?;
 
         let mut connection = self.connection()?;
         Ok(settings::write(&mut connection, &chosen)?)
@@ -378,6 +375,53 @@ impl Store {
                 path: std::path::PathBuf::from(":memory:"),
                 machine_wide: false,
             },
+        }
+    }
+}
+
+/// The print log as the commands see it: either an open log, or the reason the
+/// app has none.
+///
+/// Opening the log can fail, for instance on a machine that allows the app
+/// neither the machine-wide directory nor a per-user one. The app still starts
+/// in that case, so the operator reads the reason on screen instead of
+/// watching a window that never appears. Every log command then returns the
+/// same `storage_unavailable` error, and the UI refuses to print on the
+/// strength of it. ADR 0004 keeps the log so that a replica that was printed
+/// is a replica that was recorded, and a print run nobody could record must
+/// not happen.
+#[derive(Debug)]
+pub enum LogState {
+    /// The print log is open and every command works.
+    Open(Store),
+    /// The reason the print log could not be opened, ready to hand back to
+    /// the UI as many times as it asks.
+    Unavailable(String),
+}
+
+impl LogState {
+    /// Opens the print log this machine should use, keeping the reason when
+    /// it cannot be opened.
+    pub fn for_app<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Self {
+        match Store::open_for_app(app) {
+            Ok(store) => Self::Open(store),
+            Err(failure) => Self::Unavailable(failure.to_string()),
+        }
+    }
+
+    /// The open log, or the failure from startup repeated word for word.
+    pub fn store(&self) -> Result<&Store, LogError> {
+        match self {
+            Self::Open(store) => Ok(store),
+            Self::Unavailable(reason) => Err(LogError::StorageUnavailable(reason.clone())),
+        }
+    }
+
+    /// Which file holds the print log, or why there is none.
+    pub fn storage_info(&self) -> StorageInfo {
+        match self {
+            Self::Open(store) => store.storage_info(),
+            Self::Unavailable(reason) => StorageInfo::unavailable(reason.clone()),
         }
     }
 }
@@ -466,12 +510,18 @@ fn now() -> String {
 
 /// The operator: the operating system user name and the computer name.
 ///
-/// Either can fail on a machine that answers neither question. The log stores
-/// a placeholder in that case rather than refusing to record the print run.
+/// The computer name is the one a person sets and reads: Sharing in System
+/// Settings on macOS, and the computer name on Windows. The network host name
+/// is a different string that DHCP and domain policy can change under the
+/// machine, which would make two print runs from one machine look like print
+/// runs from two.
+///
+/// Either question can go unanswered. The log stores a placeholder in that
+/// case rather than refusing to record the print run.
 fn operator() -> (String, String) {
     (
         whoami::username().unwrap_or_else(|_| UNKNOWN.into()),
-        whoami::hostname().unwrap_or_else(|_| UNKNOWN.into()),
+        whoami::devicename().unwrap_or_else(|_| UNKNOWN.into()),
     )
 }
 
@@ -837,6 +887,98 @@ mod tests {
         assert!(json["operatorUser"].is_string());
         assert!(json["printedAt"].is_string());
         assert!(json["verification"].is_null());
+    }
+
+    #[test]
+    fn every_command_reports_the_reason_when_the_log_could_not_be_opened() {
+        let state = LogState::Unavailable("the disk is full".into());
+
+        let error = state.store().unwrap_err();
+
+        assert_eq!(error.code(), "storage_unavailable");
+        assert_eq!(error.to_string(), "the disk is full");
+    }
+
+    #[test]
+    fn storage_info_carries_the_reason_the_log_could_not_be_opened() {
+        let state = LogState::Unavailable("the disk is full".into());
+
+        let info = state.storage_info();
+
+        assert_eq!(info.unavailable.as_deref(), Some("the disk is full"));
+        assert_eq!(info.database_path, None);
+        assert!(!info.machine_wide);
+    }
+
+    #[test]
+    fn an_open_log_reports_no_reason() {
+        let state = LogState::Open(Store::open_in_memory());
+
+        assert!(state.store().is_ok());
+        assert_eq!(state.storage_info().unavailable, None);
+    }
+
+    /// The defect this guards against: the database file used to inherit the
+    /// umask and come out 644, owned by whoever started the app first. The
+    /// next staff account to log in could not write it and silently got a
+    /// private log instead of the machine-wide one ADR 0004 asks for.
+    ///
+    /// The WAL and SHM files are checked too, because SQLite creates them
+    /// with the database file's mode rather than the umask, which is what
+    /// lets one relaxed mode cover all three.
+    #[cfg(unix)]
+    #[test]
+    fn a_machine_wide_database_stays_writable_by_every_account() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let location = DatabaseLocation {
+            path: directory.path().join(storage::DATABASE_FILE),
+            machine_wide: true,
+        };
+
+        let store = Store::open(location.clone()).unwrap();
+        record(&store, "W483626000011", 1);
+
+        let mode =
+            |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&location.path), 0o666, "the database file");
+        assert_eq!(
+            mode(&location.path.with_extension("sqlite-wal")),
+            0o666,
+            "the WAL file"
+        );
+        assert_eq!(
+            mode(&location.path.with_extension("sqlite-shm")),
+            0o666,
+            "the SHM file"
+        );
+    }
+
+    /// A per-user log has no second account to share with, so it keeps the
+    /// permissions any new file gets on this machine. The comparison is made
+    /// against a file created beside it rather than against a fixed mode,
+    /// because the umask decides what that is.
+    #[cfg(unix)]
+    #[test]
+    fn a_per_user_database_is_left_as_the_umask_made_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let location = DatabaseLocation {
+            path: directory.path().join(storage::DATABASE_FILE),
+            machine_wide: false,
+        };
+
+        let store = Store::open(location.clone()).unwrap();
+        record(&store, "W483626000011", 1);
+
+        let ordinary = directory.path().join("ordinary-file");
+        std::fs::write(&ordinary, b"").unwrap();
+
+        let mode =
+            |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&location.path), mode(&ordinary));
     }
 
     #[test]

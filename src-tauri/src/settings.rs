@@ -27,6 +27,14 @@ const DEFAULT_VERIFY_AFTER_PRINT: bool = true;
 /// bigger, so this is a guard against a typed digit, not a supply limit.
 const DEFAULT_MAX_COPIES: u32 = 20;
 
+/// The largest value `max_copies` may be set to.
+///
+/// A print run sends one job per replica, so a ceiling keeps a mistyped
+/// setting from filling the print queue. This is the settings screen's own
+/// limit and has nothing to do with how many print runs the history screen
+/// reads at a time.
+pub const MAX_COPIES_CEILING: u32 = 1000;
+
 /// What `get_settings` returns and `set_settings` takes.
 ///
 /// Every field is always present on the wire. `selectedPrinter` is null until
@@ -51,6 +59,22 @@ impl Default for Settings {
             verify_after_print: DEFAULT_VERIFY_AFTER_PRINT,
             max_copies: DEFAULT_MAX_COPIES,
         }
+    }
+}
+
+impl Settings {
+    /// Rejects settings the app cannot work with. The message says what is
+    /// wrong, in words the settings screen can show as it stands.
+    pub fn check(&self) -> Result<(), String> {
+        if self.max_copies == 0 {
+            return Err("the largest copy count must be at least 1".into());
+        }
+        if self.max_copies > MAX_COPIES_CEILING {
+            return Err(format!(
+                "the largest copy count must be {MAX_COPIES_CEILING} or fewer"
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -192,6 +216,29 @@ mod tests {
             .unwrap();
 
         assert_eq!(read(&connection).unwrap().max_copies, 20);
+    }
+
+    #[test]
+    fn the_defaults_pass_their_own_check() {
+        assert_eq!(Settings::default().check(), Ok(()));
+    }
+
+    #[test]
+    fn a_largest_copy_count_outside_the_range_is_refused() {
+        for refused in [0, MAX_COPIES_CEILING + 1] {
+            let settings = Settings {
+                max_copies: refused,
+                ..Settings::default()
+            };
+
+            assert!(settings.check().is_err(), "{refused} should be refused");
+        }
+
+        let settings = Settings {
+            max_copies: MAX_COPIES_CEILING,
+            ..Settings::default()
+        };
+        assert_eq!(settings.check(), Ok(()));
     }
 
     #[test]
