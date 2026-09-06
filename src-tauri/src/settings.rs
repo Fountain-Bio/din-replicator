@@ -9,6 +9,7 @@
 //! an install that never touched the settings screen behave the same.
 
 use std::collections::HashMap;
+use std::ops::RangeInclusive;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,9 @@ use serde::{Deserialize, Serialize};
 const SELECTED_PRINTER: &str = "selected_printer";
 const VERIFY_AFTER_PRINT: &str = "verify_after_print";
 const MAX_COPIES: &str = "max_copies";
+const PRINT_METHOD: &str = "print_method";
+const DARKNESS: &str = "darkness";
+const SPEED_IPS: &str = "speed_ips";
 
 /// Ask the operator to scan a replica after every print run unless they turn
 /// it off. Verification is the point of the app, so it starts on.
@@ -39,6 +43,60 @@ const DEFAULT_MAX_COPIES: u32 = 20;
 /// print runs the history screen reads at a time.
 pub const MAX_COPIES_CEILING: u32 = 999;
 
+/// How dark the printer burns, on the scale the printer itself uses. 16 is the
+/// middle of the range and prints a readable barcode on the label stock the
+/// clinics use, so it is where an operator starts before adjusting.
+const DEFAULT_DARKNESS: u8 = 16;
+
+/// The darkness values the printer accepts. Below the range the barcode comes
+/// out too faint for a scanner; above it the ink spreads and the bars merge.
+const DARKNESS_RANGE: RangeInclusive<u8> = 0..=30;
+
+/// How fast the label moves through the printer, in inches per second. Slower
+/// than the printer's top speed, because a barcode printed slowly has cleaner
+/// bar edges and scans more reliably.
+const DEFAULT_SPEED_IPS: u8 = 3;
+
+/// The print speeds the printer accepts, in inches per second.
+const SPEED_IPS_RANGE: RangeInclusive<u8> = 2..=6;
+
+/// How the printer makes its mark on the label stock.
+///
+/// The two ways need different stock and different printer settings, so the
+/// operator tells the app which one this printer is loaded for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PrintMethod {
+    /// The printer melts ink off a ribbon onto the label. The mark lasts, so
+    /// this is what a label that has to stay readable through storage uses.
+    #[default]
+    ThermalTransfer,
+    /// The printer heats the label itself, which darkens where it is heated.
+    /// No ribbon is needed, and the mark fades with heat and light.
+    DirectThermal,
+}
+
+impl PrintMethod {
+    /// The text stored in the settings table, and the same word the UI reads
+    /// on the wire, so the row says plainly which method is chosen.
+    fn stored(self) -> &'static str {
+        match self {
+            Self::ThermalTransfer => "thermalTransfer",
+            Self::DirectThermal => "directThermal",
+        }
+    }
+
+    /// Reads back what [`PrintMethod::stored`] wrote. Anything else gives
+    /// None, and the caller falls back to the default.
+    fn from_stored(value: &str) -> Option<Self> {
+        match value {
+            "thermalTransfer" => Some(Self::ThermalTransfer),
+            "directThermal" => Some(Self::DirectThermal),
+            _ => None,
+        }
+    }
+}
+
 /// What `get_settings` returns and `set_settings` takes.
 ///
 /// Every field is always present on the wire. `selectedPrinter` is null until
@@ -54,6 +112,12 @@ pub struct Settings {
     pub verify_after_print: bool,
     /// The largest copy count one print run may ask for.
     pub max_copies: u32,
+    /// Which way the printer marks the label stock it is loaded with.
+    pub print_method: PrintMethod,
+    /// How dark the printer burns, on the printer's own 0 to 30 scale.
+    pub darkness: u8,
+    /// How fast the label moves through the printer, in inches per second.
+    pub speed_ips: u8,
 }
 
 impl Default for Settings {
@@ -62,6 +126,9 @@ impl Default for Settings {
             selected_printer: None,
             verify_after_print: DEFAULT_VERIFY_AFTER_PRINT,
             max_copies: DEFAULT_MAX_COPIES,
+            print_method: PrintMethod::default(),
+            darkness: DEFAULT_DARKNESS,
+            speed_ips: DEFAULT_SPEED_IPS,
         }
     }
 }
@@ -76,6 +143,20 @@ impl Settings {
         if self.max_copies > MAX_COPIES_CEILING {
             return Err(format!(
                 "the largest copy count must be {MAX_COPIES_CEILING} or fewer"
+            ));
+        }
+        if !DARKNESS_RANGE.contains(&self.darkness) {
+            return Err(format!(
+                "darkness must be from {} to {}",
+                DARKNESS_RANGE.start(),
+                DARKNESS_RANGE.end()
+            ));
+        }
+        if !SPEED_IPS_RANGE.contains(&self.speed_ips) {
+            return Err(format!(
+                "print speed must be from {} to {} inches per second",
+                SPEED_IPS_RANGE.start(),
+                SPEED_IPS_RANGE.end()
             ));
         }
         Ok(())
@@ -106,6 +187,18 @@ pub fn read(connection: &Connection) -> rusqlite::Result<Settings> {
             .get(MAX_COPIES)
             .and_then(|value| value.parse().ok())
             .unwrap_or(defaults.max_copies),
+        print_method: stored
+            .get(PRINT_METHOD)
+            .and_then(|value| PrintMethod::from_stored(value))
+            .unwrap_or(defaults.print_method),
+        darkness: stored
+            .get(DARKNESS)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(defaults.darkness),
+        speed_ips: stored
+            .get(SPEED_IPS)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(defaults.speed_ips),
     })
 }
 
@@ -132,6 +225,9 @@ pub fn write(connection: &mut Connection, settings: &Settings) -> rusqlite::Resu
         &settings.verify_after_print.to_string(),
     )?;
     put(&transaction, MAX_COPIES, &settings.max_copies.to_string())?;
+    put(&transaction, PRINT_METHOD, settings.print_method.stored())?;
+    put(&transaction, DARKNESS, &settings.darkness.to_string())?;
+    put(&transaction, SPEED_IPS, &settings.speed_ips.to_string())?;
 
     transaction.commit()?;
     read(connection)
@@ -167,15 +263,23 @@ mod tests {
         assert_eq!(settings.selected_printer, None);
         assert!(settings.verify_after_print);
         assert_eq!(settings.max_copies, 20);
+        assert_eq!(settings.print_method, PrintMethod::ThermalTransfer);
+        assert_eq!(settings.darkness, 16);
+        assert_eq!(settings.speed_ips, 3);
     }
 
     #[test]
     fn settings_survive_a_write_and_a_read() {
         let mut connection = database();
+        // Every field is set away from its default, so a field that failed to
+        // store would read back as the default and fail the comparison.
         let chosen = Settings {
             selected_printer: Some("Zebra_ZD411".into()),
             verify_after_print: false,
             max_copies: 5,
+            print_method: PrintMethod::DirectThermal,
+            darkness: 24,
+            speed_ips: 2,
         };
 
         let returned = write(&mut connection, &chosen).unwrap();
@@ -212,14 +316,80 @@ mod tests {
     #[test]
     fn a_row_the_app_cannot_parse_reads_back_as_the_default() {
         let connection = database();
-        connection
-            .execute(
-                "INSERT INTO settings (key, value) VALUES ('max_copies', 'lots')",
-                [],
-            )
-            .unwrap();
+        for (key, value) in [
+            ("max_copies", "lots"),
+            ("print_method", "engraving"),
+            ("darkness", "very"),
+            ("speed_ips", "brisk"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO settings (key, value) VALUES (?1, ?2)",
+                    [key, value],
+                )
+                .unwrap();
+        }
 
-        assert_eq!(read(&connection).unwrap().max_copies, 20);
+        assert_eq!(read(&connection).unwrap(), Settings::default());
+    }
+
+    #[test]
+    fn a_print_method_survives_the_trip_through_a_row() {
+        let mut connection = database();
+
+        for method in [PrintMethod::ThermalTransfer, PrintMethod::DirectThermal] {
+            let chosen = Settings {
+                print_method: method,
+                ..Settings::default()
+            };
+
+            assert_eq!(
+                write(&mut connection, &chosen).unwrap().print_method,
+                method
+            );
+        }
+    }
+
+    #[test]
+    fn a_darkness_outside_the_printer_scale_is_refused() {
+        for refused in [31, 200] {
+            let settings = Settings {
+                darkness: refused,
+                ..Settings::default()
+            };
+
+            assert!(settings.check().is_err(), "{refused} should be refused");
+        }
+
+        for accepted in [0, 16, 30] {
+            let settings = Settings {
+                darkness: accepted,
+                ..Settings::default()
+            };
+
+            assert_eq!(settings.check(), Ok(()), "{accepted} should be accepted");
+        }
+    }
+
+    #[test]
+    fn a_print_speed_outside_the_printer_range_is_refused() {
+        for refused in [0, 1, 7] {
+            let settings = Settings {
+                speed_ips: refused,
+                ..Settings::default()
+            };
+
+            assert!(settings.check().is_err(), "{refused} should be refused");
+        }
+
+        for accepted in [2, 4, 6] {
+            let settings = Settings {
+                speed_ips: accepted,
+                ..Settings::default()
+            };
+
+            assert_eq!(settings.check(), Ok(()), "{accepted} should be accepted");
+        }
     }
 
     #[test]
@@ -251,11 +421,24 @@ mod tests {
             selected_printer: Some("Zebra_ZD411".into()),
             verify_after_print: true,
             max_copies: 20,
+            print_method: PrintMethod::DirectThermal,
+            darkness: 16,
+            speed_ips: 3,
         })
         .unwrap();
 
         assert_eq!(json["selectedPrinter"], "Zebra_ZD411");
         assert_eq!(json["verifyAfterPrint"], true);
         assert_eq!(json["maxCopies"], 20);
+        assert_eq!(json["printMethod"], "directThermal");
+        assert_eq!(json["darkness"], 16);
+        assert_eq!(json["speedIps"], 3);
+    }
+
+    #[test]
+    fn the_default_print_method_is_the_one_that_lasts() {
+        let json = serde_json::to_value(Settings::default()).unwrap();
+
+        assert_eq!(json["printMethod"], "thermalTransfer");
     }
 }

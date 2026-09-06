@@ -863,6 +863,7 @@ mod tests {
             selected_printer: Some("Zebra_ZD411".into()),
             verify_after_print: false,
             max_copies: 8,
+            ..Settings::default()
         };
         assert_eq!(store.set_settings(chosen.clone()).unwrap(), chosen);
         assert_eq!(store.settings().unwrap(), chosen);
