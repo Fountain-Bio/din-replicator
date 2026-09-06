@@ -58,12 +58,14 @@ function capture(command: string, args: string[]): string {
 
 /**
  * Replaces the first match of `pattern` in a file, and fails if there is no match, so a
- * renamed key or a reformatted file stops the release instead of being skipped.
+ * renamed key or a reformatted file stops the release instead of being skipped. A file
+ * that already holds the new version matches and is left as it is.
  */
 function replaceInFile(path: string, pattern: RegExp, replacement: string): void {
   const before = readFileSync(path, "utf8");
+  if (!pattern.test(before)) fail(`found nothing to replace in ${path}`);
   const after = before.replace(pattern, replacement);
-  if (after === before) fail(`found nothing to replace in ${path}`);
+  if (after === before) return;
   writeFileSync(path, after);
 }
 
