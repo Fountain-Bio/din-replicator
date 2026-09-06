@@ -87,6 +87,10 @@ const LABEL_FONTS: Array<{ value: LabelFont; label: string }> = [
   { value: "mono", label: BUNDLED_LABEL_FONTS.mono.displayName },
 ];
 
+/** How each printer resolution reads in the picker. */
+const PRINTER_DOTS_PER_INCH: Array<{ value: PrinterDotsPerInch; label: string }> =
+  PRINTER_DOTS_PER_INCH_CHOICES.map((choice) => ({ value: choice, label: `${choice} dpi` }));
+
 /** One printer as a line in the picker: its name, then how it is attached. */
 function printerOptionText(printer: PrinterInfo): string {
   const connection = connectionText(printer.connection);
@@ -120,6 +124,10 @@ export function SettingsScreen({
     <Tabs defaultValue={SECTIONS[0].id} orientation="vertical" className="h-full min-h-0 gap-6">
       <TabsList
         aria-label="Settings sections"
+        // The section list is the whole navigation of this screen, so an arrow
+        // key shows the section it lands on. Base UI otherwise waits for Enter
+        // or Space, which would leave the list and the pane out of step.
+        activateOnFocus
         className="h-fit w-40 shrink-0 flex-col items-stretch gap-0.5 bg-transparent p-0"
       >
         {SECTIONS.map((section) => (
@@ -199,8 +207,16 @@ function PrinterSection({
 
   // Only a label printer produces a readable replica, so those come first.
   const byName = (a: PrinterInfo, b: PrinterInfo) => a.name.localeCompare(b.name);
-  const labelPrinters = printers.filter((printer) => printer.isZebra).sort(byName);
-  const otherPrinters = printers.filter((printer) => !printer.isZebra).sort(byName);
+  const asOptions = (group: PrinterInfo[]) =>
+    group
+      .sort(byName)
+      .map((printer) => ({ value: printer.name, label: printerOptionText(printer) }));
+  // Base UI reads the groups to put the chosen printer's line on the trigger,
+  // and the same array draws the popup, so the two can never disagree.
+  const printerGroups = [
+    { value: "Label printers", items: asOptions(printers.filter((printer) => printer.isZebra)) },
+    { value: "Other printers", items: asOptions(printers.filter((printer) => !printer.isZebra)) },
+  ].filter((group) => group.items.length > 0);
 
   return (
     <div className="flex flex-col gap-5">
@@ -210,33 +226,24 @@ function PrinterSection({
         </Label>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Select
-            value={settings.selectedPrinter ?? ""}
-            onValueChange={(name) => onChange({ ...settings, selectedPrinter: name })}
+            items={printerGroups}
+            value={settings.selectedPrinter}
+            onValueChange={(selectedPrinter) => onChange({ ...settings, selectedPrinter })}
           >
             <SelectTrigger id="printer" className="h-9 w-full max-w-sm min-w-56">
               <SelectValue placeholder="Choose a printer" />
             </SelectTrigger>
             <SelectContent>
-              {labelPrinters.length > 0 && (
-                <SelectGroup>
-                  <SelectLabel>Label printers</SelectLabel>
-                  {labelPrinters.map((printer) => (
-                    <SelectItem key={printer.name} value={printer.name}>
-                      {printerOptionText(printer)}
+              {printerGroups.map((group) => (
+                <SelectGroup key={group.value}>
+                  <SelectLabel>{group.value}</SelectLabel>
+                  {group.items.map((printer) => (
+                    <SelectItem key={printer.value} value={printer.value}>
+                      {printer.label}
                     </SelectItem>
                   ))}
                 </SelectGroup>
-              )}
-              {otherPrinters.length > 0 && (
-                <SelectGroup>
-                  <SelectLabel>Other printers</SelectLabel>
-                  {otherPrinters.map((printer) => (
-                    <SelectItem key={printer.name} value={printer.name}>
-                      {printerOptionText(printer)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              )}
+              ))}
             </SelectContent>
           </Select>
           {chosenPrinter !== undefined && <PrinterStatus state={chosenPrinter.state} />}
@@ -312,36 +319,50 @@ function AdvancedSection({
       <FieldGrid>
         <Field id="print-method" label="Print method">
           <Select
+            items={PRINT_METHODS}
             value={settings.printMethod}
-            onValueChange={(value) => onChange({ ...settings, printMethod: value as PrintMethod })}
+            onValueChange={(printMethod) => {
+              if (printMethod !== null) {
+                onChange({ ...settings, printMethod });
+              }
+            }}
           >
             <SelectTrigger id="print-method" className="h-9 w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PRINT_METHODS.map((method) => (
-                <SelectItem key={method.value} value={method.value}>
-                  {method.label}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {PRINT_METHODS.map((method) => (
+                  <SelectItem key={method.value} value={method.value}>
+                    {method.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
         </Field>
 
         <Field id="label-font" label="Label font">
           <Select
+            items={LABEL_FONTS}
             value={settings.labelFont}
-            onValueChange={(value) => onChange({ ...settings, labelFont: value as LabelFont })}
+            onValueChange={(labelFont) => {
+              if (labelFont !== null) {
+                onChange({ ...settings, labelFont });
+              }
+            }}
           >
             <SelectTrigger id="label-font" className="h-9 w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {LABEL_FONTS.map((font) => (
-                <SelectItem key={font.value} value={font.value}>
-                  {font.label}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {LABEL_FONTS.map((font) => (
+                  <SelectItem key={font.value} value={font.value}>
+                    {font.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
         </Field>
@@ -422,20 +443,25 @@ function AdvancedSection({
 
         <Field id="printer-dpi" label="Printer resolution">
           <Select
-            value={String(settings.printerDotsPerInch)}
-            onValueChange={(value) =>
-              onChange({ ...settings, printerDotsPerInch: Number(value) as PrinterDotsPerInch })
-            }
+            items={PRINTER_DOTS_PER_INCH}
+            value={settings.printerDotsPerInch}
+            onValueChange={(printerDotsPerInch) => {
+              if (printerDotsPerInch !== null) {
+                onChange({ ...settings, printerDotsPerInch });
+              }
+            }}
           >
             <SelectTrigger id="printer-dpi" className="h-9 w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PRINTER_DOTS_PER_INCH_CHOICES.map((choice) => (
-                <SelectItem key={choice} value={String(choice)}>
-                  {choice} dpi
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {PRINTER_DOTS_PER_INCH.map((choice) => (
+                  <SelectItem key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
         </Field>

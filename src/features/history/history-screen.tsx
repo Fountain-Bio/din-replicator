@@ -186,36 +186,38 @@ export function HistoryScreen({ onPrintAgain }: HistoryScreenProps) {
 
             {rows.map((row) => (
               <ContextMenu key={row.id}>
-                <ContextMenuTrigger asChild>
-                  <TableRow
-                    tabIndex={0}
-                    aria-label={`Print run of ${eyeReadable(row.original.din).text}`}
-                    className="cursor-default outline-none focus-visible:bg-muted/60"
-                    onClick={() => setDetailsRun(row.original)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setDetailsRun(row.original);
-                      }
-                    }}
-                  >
-                    {row.getAllCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className={`px-4 py-2 ${columnLayout(cell.column.id).align ?? ""}`}
-                      >
-                        <table.FlexRender cell={cell} />
-                      </TableCell>
-                    ))}
-                  </TableRow>
+                <ContextMenuTrigger
+                  render={
+                    <TableRow
+                      tabIndex={0}
+                      aria-label={`Print run of ${eyeReadable(row.original.din).text}`}
+                      className="cursor-default outline-none focus-visible:bg-muted/60"
+                      onClick={() => setDetailsRun(row.original)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setDetailsRun(row.original);
+                        }
+                      }}
+                    />
+                  }
+                >
+                  {row.getAllCells().map((cell) => (
+                    <TableCell
+                      key={cell.id}
+                      className={`px-4 py-2 ${columnLayout(cell.column.id).align ?? ""}`}
+                    >
+                      <table.FlexRender cell={cell} />
+                    </TableCell>
+                  ))}
                 </ContextMenuTrigger>
                 <ContextMenuContent className="w-48">
-                  <ContextMenuItem onSelect={() => printAgain(row.original)}>
+                  <ContextMenuItem onClick={() => printAgain(row.original)}>
                     <RotateCcwIcon />
                     Print again
                   </ContextMenuItem>
                   <ContextMenuItem
-                    onSelect={() => {
+                    onClick={() => {
                       navigator.clipboard.writeText(row.original.din).then(
                         () => toast.success(`Copied ${eyeReadable(row.original.din).text}`),
                         () => toast.error("The DIN could not be copied."),
@@ -225,7 +227,7 @@ export function HistoryScreen({ onPrintAgain }: HistoryScreenProps) {
                     <ClipboardCopyIcon />
                     Copy DIN
                   </ContextMenuItem>
-                  <ContextMenuItem onSelect={() => setDetailsRun(row.original)}>
+                  <ContextMenuItem onClick={() => setDetailsRun(row.original)}>
                     <ListIcon />
                     Show details
                   </ContextMenuItem>
