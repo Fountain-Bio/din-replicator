@@ -27,6 +27,9 @@ import { canPrint, canSetCopyCount } from "@/features/scan/scan-state";
 import { usePrintRun } from "@/features/scan/use-print-run";
 import { SettingsScreen } from "@/features/settings/settings-screen";
 import { useSettings } from "@/features/settings/use-settings";
+import { UpdateBanner } from "@/features/update/update-banner";
+import { showsUpdateBanner } from "@/features/update/update-state";
+import { useUpdate } from "@/features/update/use-update";
 import { DEFAULT_LABEL_FONT } from "@/lib/label/fonts";
 import { DEFAULT_LABEL_STOCK } from "@/lib/label/replica-zpl";
 import { useScanListener } from "@/lib/scanner";
@@ -47,6 +50,7 @@ export default function App() {
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
 
+  const update = useUpdate();
   const { printers, loading: loadingPrinters, refresh: refreshPrinters } = usePrinters();
   const { settings, error: settingsError, save: saveSettings } = useSettings(printers);
   const { selected, refreshState } = useSelectedPrinter(
@@ -158,32 +162,44 @@ export default function App() {
       <Sidebar screen={screen} printer={selected} onGoToScreen={setScreen} />
 
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-        <div className="mx-auto h-full w-full max-w-(--shell-width) px-6 py-6">
-          {screen === "scan" && (
-            <ScanScreen
-              state={state}
-              dispatch={dispatch}
-              printer={selected}
-              labelFont={settings?.labelFont ?? DEFAULT_LABEL_FONT}
-              stock={settings === null ? DEFAULT_LABEL_STOCK : labelStock(settings)}
-              blockedReason={blockedReason}
-              onPrint={print}
-              onGoToSettings={() => setScreen("settings")}
-            />
+        <div className="mx-auto flex h-full w-full max-w-(--shell-width) flex-col gap-4 px-6 py-6">
+          {/* An update waits for a screen with nothing in hand. A print run on
+              its way to the printer, or a verification scan the app is waiting
+              for, keeps the banner off. */}
+          {showsUpdateBanner(update.state, state.phase.kind === "idle") && (
+            <UpdateBanner state={update.state} onInstall={update.install} onLater={update.later} />
           )}
-          {screen === "history" && <HistoryScreen onPrintAgain={printAgain} />}
-          {screen === "settings" && (
-            <SettingsScreen
-              settings={settings}
-              settingsError={settingsError}
-              printers={printers}
-              loadingPrinters={loadingPrinters}
-              storage={storage}
-              storageError={storageError}
-              onChange={saveSettings}
-              onRefreshPrinters={refreshPrinters}
-            />
-          )}
+
+          <div className="min-h-0 flex-1">
+            {screen === "scan" && (
+              <ScanScreen
+                state={state}
+                dispatch={dispatch}
+                printer={selected}
+                labelFont={settings?.labelFont ?? DEFAULT_LABEL_FONT}
+                stock={settings === null ? DEFAULT_LABEL_STOCK : labelStock(settings)}
+                blockedReason={blockedReason}
+                onPrint={print}
+                onGoToSettings={() => setScreen("settings")}
+              />
+            )}
+            {screen === "history" && <HistoryScreen onPrintAgain={printAgain} />}
+            {screen === "settings" && (
+              <SettingsScreen
+                settings={settings}
+                settingsError={settingsError}
+                printers={printers}
+                loadingPrinters={loadingPrinters}
+                storage={storage}
+                storageError={storageError}
+                appVersion={update.appVersion}
+                update={update.state}
+                onChange={saveSettings}
+                onRefreshPrinters={refreshPrinters}
+                onCheckForUpdates={update.check}
+              />
+            )}
+          </div>
         </div>
       </main>
 

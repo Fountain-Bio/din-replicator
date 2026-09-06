@@ -34,6 +34,7 @@ import {
 } from "@/lib/label/replica-zpl";
 import type { Commands } from "./commands";
 import type { PrinterInfo, PrintRun, Settings, StorageInfo } from "./types";
+import type { AvailableUpdate } from "./updater";
 
 /**
  * Three printers, so the settings screen has something to choose between and
@@ -429,6 +430,11 @@ const handlers: MockCommands = {
   storage_info: () => storage,
 };
 
+/** Waits, so the screens spend a moment in their loading states. */
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 /**
  * Answers one command the way the Rust side would.
  *
@@ -439,7 +445,51 @@ export async function mockInvoke<K extends keyof Commands>(
   command: K,
   args: Commands[K]["args"],
 ): Promise<Commands[K]["result"]> {
-  await new Promise((resolve) => setTimeout(resolve, 120));
+  await delay(120);
   const handler: MockCommands[K] = handlers[command];
   return handler(args);
+}
+
+/**
+ * The version a development build reports. It mirrors `version` in
+ * package.json, which is the version a real build reports.
+ */
+const APP_VERSION = "0.1.0";
+
+/** The version of the running app, as `getVersion` would answer it. */
+export async function mockAppVersion(): Promise<string> {
+  await delay(120);
+  return APP_VERSION;
+}
+
+/**
+ * Add `?update=1.2.3` to the address to see the update banner and the About
+ * section with that version waiting. Without the flag the mock reports no
+ * update, which is what a machine running the newest release sees.
+ */
+const offeredVersion =
+  typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("update");
+
+/**
+ * An update to offer, or null when there is none.
+ *
+ * Nothing is downloaded and nothing is installed. The fake download reports
+ * its progress over a few seconds so the banner can be watched from the
+ * moment Install is pressed to the moment the app would restart.
+ */
+export async function mockUpdate(): Promise<AvailableUpdate | null> {
+  await delay(400);
+  if (offeredVersion === null || offeredVersion === "") {
+    return null;
+  }
+  return {
+    version: offeredVersion,
+    downloadAndInstall: async (onProgress) => {
+      const steps = 10;
+      for (let step = 1; step <= steps; step += 1) {
+        await delay(250);
+        onProgress(step / steps);
+      }
+    },
+  };
 }

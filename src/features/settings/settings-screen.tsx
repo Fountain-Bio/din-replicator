@@ -29,6 +29,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { UpdateState } from "@/features/update/update-state";
 import { BUNDLED_LABEL_FONTS, type LabelFont } from "@/lib/label/fonts";
 import {
   DARKNESS_MAX,
@@ -62,8 +63,13 @@ export interface SettingsScreenProps {
   storage: StorageInfo | null;
   /** Why the print log could not be asked at all, or null when it answered. */
   storageError: string | null;
+  /** The version of the running app, or null until it has been read. */
+  appVersion: string | null;
+  /** Where the app stands with the newest release. */
+  update: UpdateState;
   onChange: (settings: Settings) => void;
   onRefreshPrinters: () => void;
+  onCheckForUpdates: () => void;
 }
 
 /** The sections of the screen, in the order the list shows them. */
@@ -72,6 +78,7 @@ const SECTIONS = [
   { id: "verification", label: "Verification and copies" },
   { id: "advanced", label: "Advanced" },
   { id: "print-log", label: "Print log" },
+  { id: "about", label: "About" },
 ] as const;
 
 /** How each printing method reads in the picker. */
@@ -104,8 +111,11 @@ export function SettingsScreen({
   loadingPrinters,
   storage,
   storageError,
+  appVersion,
+  update,
   onChange,
   onRefreshPrinters,
+  onCheckForUpdates,
 }: SettingsScreenProps) {
   // Every setting lives in the print log database, so settings that cannot be
   // read mean a print log that is out of reach. There is nothing to show and
@@ -163,6 +173,14 @@ export function SettingsScreen({
 
           <TabsContent value="print-log">
             <PrintLogSection storage={storage} storageError={storageError} />
+          </TabsContent>
+
+          <TabsContent value="about">
+            <AboutSection
+              appVersion={appVersion}
+              update={update}
+              onCheckForUpdates={onCheckForUpdates}
+            />
           </TabsContent>
         </div>
       </ScrollPane>
@@ -500,5 +518,64 @@ function PrintLogSection({
         <dd>{storage.machineWide ? "Shared by every login" : "This login only"}</dd>
       </div>
     </dl>
+  );
+}
+
+/** What the Check for updates button has to report, or null before it is used. */
+function checkResultText(update: UpdateState): string | null {
+  switch (update.status) {
+    case "checking":
+      return "Checking";
+    case "available":
+    case "downloading":
+    case "ready":
+      return `Version ${update.version} is available.`;
+    case "failed":
+      return "The check did not finish.";
+    case "idle":
+      return update.upToDate ? "Up to date" : null;
+  }
+}
+
+function AboutSection({
+  appVersion,
+  update,
+  onCheckForUpdates,
+}: {
+  appVersion: string | null;
+  update: UpdateState;
+  onCheckForUpdates: () => void;
+}) {
+  const result = checkResultText(update);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <dl className="flex flex-col gap-4 text-sm">
+        <div className="flex flex-col gap-1">
+          <dt className="text-muted-foreground">App</dt>
+          <dd>DIN Replicator</dd>
+        </div>
+        <div className="flex flex-col gap-1">
+          <dt className="text-muted-foreground">Version</dt>
+          <dd className="tabular-nums">{appVersion ?? "Reading the version"}</dd>
+        </div>
+      </dl>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Button
+          variant="outline"
+          size="lg"
+          onClick={onCheckForUpdates}
+          disabled={update.status === "checking" || update.status === "downloading"}
+        >
+          Check for updates
+        </Button>
+        {result !== null && <p className="text-sm text-muted-foreground">{result}</p>}
+      </div>
+
+      <p className="text-sm text-muted-foreground">
+        Updates come from the project's GitHub releases.
+      </p>
+    </div>
   );
 }

@@ -49,12 +49,21 @@ export interface Commands {
 }
 
 /**
- * True when this build is running in a browser with no Tauri host. Tauri puts
- * `__TAURI_INTERNALS__` on `window` before the page loads, so its absence in a
- * development build means `bun run dev` rather than `bun run tauri dev`.
+ * True when the app window has a Rust side behind it. Tauri puts
+ * `__TAURI_INTERNALS__` on `window` before the page loads.
  */
-const useDevelopmentMock =
-  import.meta.env.DEV && typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window);
+export const HAS_TAURI_HOST = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/**
+ * True when this build is running in a browser with no Tauri host, which in a
+ * development build means `bun run dev` rather than `bun run tauri dev`.
+ *
+ * Each module that has a mock branch works this out for itself from
+ * `import.meta.env.DEV`. A production build replaces that with false in the
+ * module it is written in, which is what lets the bundler drop the branch and
+ * the mock behind it.
+ */
+const USING_DEVELOPMENT_MOCK = import.meta.env.DEV && !HAS_TAURI_HOST;
 
 /**
  * Sends one command to the Rust side, or to the development mock.
@@ -66,7 +75,7 @@ async function call<K extends keyof Commands>(
   command: K,
   args: Commands[K]["args"],
 ): Promise<Commands[K]["result"]> {
-  if (useDevelopmentMock) {
+  if (USING_DEVELOPMENT_MOCK) {
     const { mockInvoke } = await import("./dev-mock");
     return mockInvoke(command, args);
   }
