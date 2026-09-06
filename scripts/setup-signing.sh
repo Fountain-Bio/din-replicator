@@ -591,19 +591,28 @@ AZURE_RESOURCE_GROUP=""
 if [[ "$DO_AZURE" != true ]]; then
   skipped_stage "no Azure CLI to create a signing account with"
 else
-  say "An Artifact Signing account holds the identity validation and the"
-  say "certificate profiles. Its name is globally unique, 3 to 24 letters and"
-  say "digits, starting with a letter."
-  note "Regions that support the service include eastus, westus2, westus3,"
-  note "northeurope, westeurope, japaneast and koreacentral."
-  ask AZURE_RESOURCE_GROUP "Resource group name [din-replicator-signing]:"
-  AZURE_RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-din-replicator-signing}"
-  ask AZURE_LOCATION "Region [westus2]:"
-  AZURE_LOCATION="${AZURE_LOCATION:-westus2}"
-  ask AZURE_ARTIFACT_SIGNING_ACCOUNT "Signing account name:"
-  if [[ ! "$AZURE_ARTIFACT_SIGNING_ACCOUNT" =~ ^[A-Za-z][A-Za-z0-9]{2,23}$ ]]; then
-    warn "that name does not fit Azure's rules for a signing account"
-    exit 1
+  # An account that already exists in the subscription is reused without
+  # asking, so a re-run after the identity validation never repeats this stage.
+  existing=$(az "$AZ_SIGNING" list --query "[].[name,resourceGroup,location]" -o tsv 2>/dev/null | head -n 1 || true)
+  if [[ -n "$existing" ]]; then
+    IFS=$'\t' read -r AZURE_ARTIFACT_SIGNING_ACCOUNT AZURE_RESOURCE_GROUP AZURE_LOCATION <<<"$existing"
+    printf '  %s✓ found%s the signing account %s in %s (%s)\n' "$GREEN" "$RESET" \
+      "$AZURE_ARTIFACT_SIGNING_ACCOUNT" "$AZURE_RESOURCE_GROUP" "$AZURE_LOCATION"
+  else
+    say "An Artifact Signing account holds the identity validation and the"
+    say "certificate profiles. Its name is globally unique, 3 to 24 letters and"
+    say "digits, starting with a letter."
+    note "Regions that support the service include eastus, westus2, westus3,"
+    note "northeurope, westeurope, japaneast and koreacentral."
+    ask AZURE_RESOURCE_GROUP "Resource group name [din-replicator-signing]:"
+    AZURE_RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-din-replicator-signing}"
+    ask AZURE_LOCATION "Region [westus2]:"
+    AZURE_LOCATION="${AZURE_LOCATION:-westus2}"
+    ask AZURE_ARTIFACT_SIGNING_ACCOUNT "Signing account name:"
+    if [[ ! "$AZURE_ARTIFACT_SIGNING_ACCOUNT" =~ ^[A-Za-z][A-Za-z0-9]{2,23}$ ]]; then
+      warn "that name does not fit Azure's rules for a signing account"
+      exit 1
+    fi
   fi
 
   if az "$AZ_SIGNING" show -g "$AZURE_RESOURCE_GROUP" \
