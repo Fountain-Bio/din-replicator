@@ -25,7 +25,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "nsis"],
+    "targets": ["app", "dmg", "nsis"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -48,6 +49,14 @@
         "cmd": "cmd",
         "args": ["/C", "artifact-signing-cli", "-e", "%AZURE_ARTIFACT_SIGNING_ENDPOINT%", "%1"]
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Fountain-Bio/din-replicator/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU5NUMwNDE1ODNGQTFCQzkKUldUSkcvcURGUVJjV2Ntb3YzenQwNmVVc1M2RDNWbnF5TUNJVzExeWRTQ0hEMHhSZ1BpcTZnNmgK"
     }
   }
 }

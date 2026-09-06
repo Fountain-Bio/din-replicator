@@ -13,6 +13,17 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            // The updater downloads a newer release, checks it against the
+            // public key in tauri.conf.json, and installs it. The process
+            // plugin restarts the app once an install finishes. Both plugins
+            // exist only on desktop, which is every platform this app ships on.
+            #[cfg(desktop)]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
+
             // The print log is one SQLite file per machine (ADR 0004). It is
             // opened once here and shared by every command that touches it.
             //

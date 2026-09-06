@@ -11,12 +11,13 @@ git push origin main
 git push origin v0.2.0
 ```
 
-Pushing the tag starts the `release` workflow. It builds on three runners and opens a draft
-GitHub release with the installers attached. Read the draft, write the notes, publish it.
+Pushing the tag starts the `release` workflow. It builds on a macOS runner and a Windows
+runner, opens a draft GitHub release with the installers attached, then assembles the update
+manifest. Read the draft, write the notes, publish it.
 
 ## What a release is made of
 
-The `release` workflow builds three artifacts:
+The two build jobs produce the files a person downloads:
 
 | Artifact                                 | Platform               | Runner                          |
 | ---------------------------------------- | ---------------------- | ------------------------------- |
@@ -27,7 +28,115 @@ The Windows installer is an NSIS per-machine installer, so it installs for every
 computer and asks for administrator rights. It carries the WebView2 bootstrapper inside it, so
 it works on a machine with no internet access and no WebView2 runtime.
 
-There is no auto-updater. A new version is installed the same way as the first one.
+The same jobs also produce the files an already installed app downloads when it updates itself:
+
+| Artifact                                     | What it is                                             |
+| -------------------------------------------- | ------------------------------------------------------ |
+| `DIN Replicator.app.tar.gz`                  | The macOS app, compressed. This is the macOS update.   |
+| `DIN Replicator.app.tar.gz.sig`              | Signature of the macOS update.                         |
+| `DIN Replicator_<version>_x64-setup.exe.sig` | Signature of the Windows installer, which is the Windows update. |
+| `latest.json`                                | Names the update and the signature for each platform.  |
+
+GitHub replaces every space in a file name with a dot when it stores the file as a release
+asset, so the assets read `DIN.Replicator.app.tar.gz` and so on. `latest.json` is built from
+the names the release actually holds, so it always points at the right files.
+
+Two settings in `src-tauri/tauri.conf.json` produce all of this. `bundle.createUpdaterArtifacts`
+turns the update files on. `bundle.targets` has to list `app` as well as `dmg`, because the
+macOS update file is made from the `.app` bundle and the bundler throws the `.app` away after
+building the DMG unless `app` is a target of its own. A build with `createUpdaterArtifacts` on
+and `app` missing prints "no updater-enabled targets were built" and produces a release no
+installed app will accept.
+
+The updater reads `latest.json` over plain HTTPS with no credentials, so the repository has to
+be public for updates to work. While it is private, GitHub answers that URL with a 404 and
+every app reports that it is already up to date.
+
+## How an update reaches a machine
+
+1. The tag builds. Each platform job uploads its installer, its update file and the signature
+   of that update file to a draft release.
+2. The `updater-manifest` job runs after both, reads the signatures back off the release, and
+   uploads `latest.json`.
+3. You write the release notes and publish the release. Nothing reaches any machine before
+   this point, because a draft release has no public download URLs.
+4. An installed app asks GitHub for `releases/latest/download/latest.json`. GitHub redirects
+   that to the copy attached to the newest published release.
+5. The app compares the `version` in `latest.json` with its own. If the release is newer, it
+   downloads the file named for its platform, checks the signature against the public key
+   built into it, and installs the update. Then it restarts.
+
+An app installs a download only when the public key in `src-tauri/tauri.conf.json` verifies
+its signature. It refuses a file that was replaced on the release, and it refuses a release
+that was built without the signing key.
+
+The notes in `latest.json` are the release notes as they stood when the workflow ran, which is
+before you have written them. Write the notes, then re-run the `updater-manifest` job if you
+want them to appear in the update prompt as well as on the release page.
+
+Publishing a release makes it the one every app updates to. Publishing an older version than
+the one already published moves every machine back to it, because the apps only compare their
+own version against `latest.json`.
+
+## The update signing key
+
+The updater uses a minisign key of its own, unrelated to the Apple certificate and the Azure
+certificate. Apple and Azure signing let an operating system judge whether the installer is
+safe to run. The update key lets an app that is already installed judge whether an update came
+from this repository. Because the two are independent, a build with no code signing at all
+still produces an update the app will accept.
+
+The key was created with:
+
+```sh
+bun run tauri signer generate -w ~/.tauri/din-replicator.key
+```
+
+That command asks for a password and writes two files:
+
+| Path                              | What it is                                             |
+| --------------------------------- | ------------------------------------------------------ |
+| `~/.tauri/din-replicator.key`     | The private key. It signs every update.                |
+| `~/.tauri/din-replicator.key.pub` | The public key, copied into `plugins.updater.pubkey`.  |
+
+The password is not written anywhere by the command. This repository's key was set up with the
+password saved beside the key in `~/.tauri/din-replicator.key.password`, readable only by its
+owner, so that the two can be backed up together.
+
+The private key and its password are stored as the repository secrets
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and the build jobs read
+them from there.
+
+**Back up the private key file and the password, off this machine, before anything else.** A
+GitHub secret can be written but never read back, so the repository is not a backup. Every
+installed app carries the matching public key and accepts nothing else. If the key file and
+the password are both lost, those apps can never be updated again by any means, and each one
+has to be uninstalled and replaced by hand on the machine it runs on.
+
+Put both files somewhere a person other than you can reach: a password manager entry, or an
+encrypted archive kept with the Apple certificate.
+
+## Rotating the update key
+
+Rotating the key breaks every app built with the old public key, so it is worth doing only if
+the private key has leaked. An app learns a new public key only from a new build, and the old
+key is what would have delivered that build, so each machine has to be visited by hand.
+
+The order matters:
+
+1. Generate the new pair, at a new path so the old one is still intact:
+   `bun run tauri signer generate -w ~/.tauri/din-replicator-2.key`
+2. Put the new public key into `plugins.updater.pubkey` in `src-tauri/tauri.conf.json` and
+   commit it.
+3. Store the new private key with
+   `gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/din-replicator-2.key`, and store the
+   password you chose in step 1 with `gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+4. Cut a release the usual way. This release is signed with the new key.
+5. Every app running the old build refuses that release, because it checks the old public key.
+   Install the new build by hand on each machine. From then on updates work again.
+
+Keep the old private key until every machine is on a build that carries the new public key. If
+you still hold it, you can sign one more release with the old key to reach the stragglers.
 
 ## Cutting a release
 
@@ -47,7 +156,8 @@ Nothing is pushed, so there is a moment to read the commit before the tag reache
 
 Signing is driven by repository secrets alone. `scripts/setup-signing.sh (pass `--apple-only`or`--azure-only` to run one half; each half stores its own secrets as soon as it completes)` is an interactive
 wizard that creates every value and stores it with `gh secret set`. Run it once, and again
-whenever a credential expires.
+whenever a credential expires. It does not touch `TAURI_SIGNING_PRIVATE_KEY` or
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, which are described under "The update signing key".
 
 ### macOS
 
@@ -115,6 +225,9 @@ A tag still builds. Each job checks which secrets are present, and:
 
 - On macOS with no Apple secrets, the certificate import step is skipped, so
   `APPLE_SIGNING_IDENTITY` is never set and the bundler signs and notarizes nothing.
+- With no `TAURI_SIGNING_PRIVATE_KEY`, the bundler writes no update files and no signatures.
+  The `updater-manifest` job then has nothing to point at and fails, so the draft release
+  carries installers a person can download and nothing an installed app will accept.
 - On Windows with no Azure secrets, the build adds
   `--config {"bundle":{"windows":{"signCommand":null}}}`, which deletes the sign command from
   the effective configuration, so the bundler skips signing instead of failing on a missing
@@ -228,6 +341,7 @@ Windows SDK, so the Windows installer is only ever signed on the Windows runner.
 
 ## Sources
 
+- The updater: <https://v2.tauri.app/plugin/updater/>
 - macOS signing and notarization: <https://v2.tauri.app/distribute/sign/macos/>
 - Windows signing: <https://v2.tauri.app/distribute/sign/windows/>
 - GitHub Actions pipeline: <https://v2.tauri.app/distribute/pipelines/github/>
