@@ -120,7 +120,13 @@ run("git", [
   "src-tauri/Cargo.toml",
   "src-tauri/Cargo.lock",
 ]);
-run("git", ["commit", "-m", `Release ${tag}`]);
+// The manifests may already carry this version, in which case the tag goes on the current
+// commit and there is nothing to commit.
+if (capture("git", ["diff", "--cached", "--name-only"]) !== "") {
+  run("git", ["commit", "-m", `Release ${tag}`]);
+} else {
+  console.log("release: the manifests already held this version, tagging the current commit");
+}
 run("git", ["tag", "-a", tag, "-m", `Release ${tag}`]);
 
 console.log(`
