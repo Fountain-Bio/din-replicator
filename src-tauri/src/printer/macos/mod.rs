@@ -279,11 +279,12 @@ fn connection_from_uri(uri: &str) -> PrinterConnection {
 fn authority_host(rest: &str) -> String {
     let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..authority_end];
-    let without_userinfo = authority.rsplit('@').next().unwrap_or(authority);
+    let without_userinfo = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
     without_userinfo
-        .split(':')
-        .next()
-        .unwrap_or(without_userinfo)
+        .split_once(':')
+        .map_or(without_userinfo, |(host, _)| host)
         .to_string()
 }
 
@@ -386,8 +387,7 @@ fn state_from_stanza(status_line: &str, detail: &str) -> PrinterState {
 fn parse_job_id(stdout: &str) -> Option<String> {
     stdout
         .split_once("request id is ")
-        .map(|(_, rest)| rest)
-        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|(_, rest)| rest.split_whitespace().next())
         .map(str::to_string)
 }
 

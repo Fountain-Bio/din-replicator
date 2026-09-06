@@ -97,12 +97,11 @@ mod tests {
         let mut statement = connection
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
             .unwrap();
-        let names = statement
+        statement
             .query_map([], |row| row.get::<_, String>(0))
             .unwrap()
             .collect::<rusqlite::Result<Vec<_>>>()
-            .unwrap();
-        names
+            .unwrap()
     }
 
     #[test]

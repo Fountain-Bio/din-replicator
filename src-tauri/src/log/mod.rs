@@ -293,17 +293,17 @@ impl Store {
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
 
-        let known = transaction
+        // The foreign key would refuse the insert on its own, but only as a
+        // database failure. Looking the print run up first is what lets the UI
+        // see the print_run_not_found code instead.
+        transaction
             .query_row(
                 "SELECT 1 FROM print_runs WHERE id = ?1",
                 [input.print_run_id],
                 |_| Ok(()),
             )
             .optional()?
-            .is_some();
-        if !known {
-            return Err(LogError::PrintRunNotFound(input.print_run_id));
-        }
+            .ok_or(LogError::PrintRunNotFound(input.print_run_id))?;
 
         transaction.execute(
             "INSERT INTO verifications
@@ -335,6 +335,8 @@ impl Store {
              LIMIT ?2 OFFSET ?3"
         ))?;
 
+        // The rows borrow `statement`, so they are collected into a binding
+        // that outlives it rather than returned straight out of the block.
         let runs = statement
             .query_map(params![pattern, limit, offset], to_print_run)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -930,11 +932,6 @@ mod tests {
         assert_eq!(state.storage_info().unavailable, None);
     }
 
-    /// The defect this guards against: the database file used to inherit the
-    /// umask and come out 644, owned by whoever started the app first. The
-    /// next staff account to log in could not write it and silently got a
-    /// private log instead of the machine-wide one ADR 0004 asks for.
-    ///
     /// The WAL and SHM files are checked too, because SQLite creates them
     /// with the database file's mode rather than the umask, which is what
     /// lets one relaxed mode cover all three.

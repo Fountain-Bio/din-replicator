@@ -36,7 +36,7 @@ pub fn connection_from_port(port: &str) -> PrinterConnection {
 
     // A vendor port monitor can name its port with the bare address, with no
     // prefix to recognise. Parsing it as an IP address is the only way to
-    // tell such a port from one of the other named forms below.
+    // tell such a port from one of the other named forms.
     if port.parse::<IpAddr>().is_ok() {
         return PrinterConnection {
             kind: ConnectionKind::Network,
@@ -127,47 +127,20 @@ mod tests {
         );
     }
 
+    /// A parallel port, a serial port, the port that writes to a file, and the
+    /// port that asks the operator where to print. None of them says how the
+    /// printer is reached.
     #[test]
-    fn a_parallel_port_is_other() {
-        assert_eq!(
-            connection_from_port("LPT1:"),
-            PrinterConnection {
-                kind: ConnectionKind::Other,
-                host: None,
-            }
-        );
-    }
-
-    #[test]
-    fn a_serial_port_is_other() {
-        assert_eq!(
-            connection_from_port("COM1:"),
-            PrinterConnection {
-                kind: ConnectionKind::Other,
-                host: None,
-            }
-        );
-    }
-
-    #[test]
-    fn a_file_port_is_other() {
-        assert_eq!(
-            connection_from_port("FILE:"),
-            PrinterConnection {
-                kind: ConnectionKind::Other,
-                host: None,
-            }
-        );
-    }
-
-    #[test]
-    fn a_port_prompt_is_other() {
-        assert_eq!(
-            connection_from_port("PORTPROMPT:"),
-            PrinterConnection {
-                kind: ConnectionKind::Other,
-                host: None,
-            }
-        );
+    fn a_port_that_names_no_connection_is_other() {
+        for port in ["LPT1:", "COM1:", "FILE:", "PORTPROMPT:"] {
+            assert_eq!(
+                connection_from_port(port),
+                PrinterConnection {
+                    kind: ConnectionKind::Other,
+                    host: None,
+                },
+                "port {port} should be other"
+            );
+        }
     }
 }

@@ -196,9 +196,6 @@ mod tests {
         assert_eq!(mode(&machine), 0o777);
     }
 
-    /// The defect this guards against: sharing the per-user fallback was
-    /// pointless, and a machine where sharing fails would have been left with
-    /// no working directory at all.
     #[cfg(unix)]
     #[test]
     fn the_per_user_directory_keeps_the_permissions_a_new_directory_gets() {

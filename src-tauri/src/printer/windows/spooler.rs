@@ -188,17 +188,19 @@ fn printer_info(info: &PRINTER_INFO_2W) -> PrinterInfo {
     let driver = unsafe { read_wide(info.pDriverName) };
     let port = unsafe { read_wide(info.pPortName) };
 
+    let is_zebra = crate::printer::looks_like_zebra(&[&name, &comment, &driver]);
+
     // The comment is free text whoever installed the queue typed, so it is
     // often empty. The driver name always names the model, which is what
     // tells a Zebra apart from the office laser printer next to it.
     let description = if comment.trim().is_empty() {
-        driver.clone()
+        driver
     } else {
         comment
     };
 
     PrinterInfo {
-        is_zebra: crate::printer::looks_like_zebra(&[&name, &description, &driver]),
+        is_zebra,
         state: state_from_flags(info.Status, info.Attributes),
         name,
         description,
