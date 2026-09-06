@@ -185,8 +185,19 @@ impl Store {
         // account to log in, so its rights are opened up the same way the
         // directory's were. A per-user log is left alone: nobody else needs
         // it.
+        //
+        // Failing here does not stop this login from printing, and it is not
+        // this login that suffers. The account that cannot write the file runs
+        // the write probe itself, falls back to a per-user log, and says so
+        // through its own storage_info. The failure is printed so it shows up
+        // in a support session on this machine.
         if location.machine_wide {
-            let _ = crate::platform::make_shared(&location.path);
+            if let Err(error) = crate::platform::make_shared(&location.path) {
+                eprintln!(
+                    "could not open the print log at {} up to every account on this machine: {error}",
+                    location.path.display()
+                );
+            }
         }
 
         Self::prepare(&mut connection)?;

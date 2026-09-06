@@ -30,10 +30,14 @@ const DEFAULT_MAX_COPIES: u32 = 20;
 /// The largest value `max_copies` may be set to.
 ///
 /// A print run sends one job per replica, so a ceiling keeps a mistyped
-/// setting from filling the print queue. This is the settings screen's own
-/// limit and has nothing to do with how many print runs the history screen
-/// reads at a time.
-pub const MAX_COPIES_CEILING: u32 = 1000;
+/// setting from filling the print queue. The label module refuses a copy count
+/// above the same number: `src/lib/label/replica-zpl.ts` holds it as
+/// `MAX_COPIES`, and the two must agree or the settings screen would offer a
+/// copy count that no replica can be built for.
+///
+/// This is the settings screen's own limit and has nothing to do with how many
+/// print runs the history screen reads at a time.
+pub const MAX_COPIES_CEILING: u32 = 999;
 
 /// What `get_settings` returns and `set_settings` takes.
 ///

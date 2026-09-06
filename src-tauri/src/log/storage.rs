@@ -75,14 +75,14 @@ impl StorageInfo {
 /// `user_dir` is the per-user fallback. The error names both paths, because
 /// reaching it means neither directory took a file.
 pub fn choose(machine_dir: &Path, user_dir: &Path) -> Result<DatabaseLocation, LogError> {
-    if prepare(machine_dir).is_ok() {
+    if prepare(machine_dir, Sharing::EveryAccount).is_ok() {
         return Ok(DatabaseLocation {
             path: machine_dir.join(DATABASE_FILE),
             machine_wide: true,
         });
     }
 
-    match prepare(user_dir) {
+    match prepare(user_dir, Sharing::ThisAccountOnly) {
         Ok(()) => Ok(DatabaseLocation {
             path: user_dir.join(DATABASE_FILE),
             machine_wide: false,
@@ -95,22 +95,39 @@ pub fn choose(machine_dir: &Path, user_dir: &Path) -> Result<DatabaseLocation, L
     }
 }
 
-/// Creates `dir` if it is missing, opens it up to every account on the
-/// machine, then checks the app can write a file in it.
+/// Who a directory is prepared for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sharing {
+    /// Every account on the machine, which is what the machine-wide directory
+    /// is for.
+    EveryAccount,
+    /// Only the account running the app, which is all the per-user fallback
+    /// ever serves.
+    ThisAccountOnly,
+}
+
+/// Creates `dir` if it is missing, then checks the app can write a file in it.
 ///
 /// A directory the app creates belongs to whoever launched the app first, so
-/// without [`crate::platform::make_shared`] the next staff account to log in
-/// would fail the probe and get its own private log. That is the failure
-/// ADR 0004 exists to prevent, so a directory that cannot be shared counts as
-/// a directory that did not work.
+/// for the machine-wide directory [`crate::platform::make_shared`] opens it up
+/// to every account. Without that the next staff account to log in would fail
+/// the probe and get its own private log, which is the failure ADR 0004 exists
+/// to prevent, so a machine-wide directory that cannot be shared counts as a
+/// directory that did not work.
+///
+/// The per-user fallback is never shared. It holds one account's log by
+/// design, so a machine where sharing fails would otherwise lose its last
+/// working directory and the app would refuse to print for no good reason.
 ///
 /// Creating the directory is not proof on its own. SQLite writes the journal
 /// and the WAL file next to the database, so a directory that only allows
 /// reads would fail later, in the middle of a print run. Writing and deleting
 /// a probe file finds that out now.
-fn prepare(dir: &Path) -> io::Result<()> {
+fn prepare(dir: &Path, sharing: Sharing) -> io::Result<()> {
     fs::create_dir_all(dir)?;
-    crate::platform::make_shared(dir)?;
+    if sharing == Sharing::EveryAccount {
+        crate::platform::make_shared(dir)?;
+    }
     let probe = dir.join(".write-probe");
     fs::write(&probe, b"")?;
     let _ = fs::remove_file(&probe);
@@ -157,6 +174,49 @@ mod tests {
 
         assert!(!location.machine_wide);
         assert_eq!(location.path, user.path().join(DATABASE_FILE));
+    }
+
+    /// The permission bits of `path`, without the file type bits.
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_machine_wide_directory_is_opened_up_to_every_account() {
+        let root = tempfile::tempdir().unwrap();
+        let machine = root.path().join("DIN Replicator");
+
+        let location = choose(&machine, &root.path().join("user")).unwrap();
+
+        assert!(location.machine_wide);
+        assert_eq!(mode(&machine), 0o777);
+    }
+
+    /// The defect this guards against: sharing the per-user fallback was
+    /// pointless, and a machine where sharing fails would have been left with
+    /// no working directory at all.
+    #[cfg(unix)]
+    #[test]
+    fn the_per_user_directory_keeps_the_permissions_a_new_directory_gets() {
+        let root = tempfile::tempdir().unwrap();
+        // A file cannot become a directory, so the machine-wide attempt fails
+        // and the fallback runs.
+        let blocked = root.path().join("blocked");
+        fs::write(&blocked, b"").unwrap();
+        let user = root.path().join("user");
+
+        let location = choose(&blocked, &user).unwrap();
+
+        assert!(!location.machine_wide);
+        // A directory made the ordinary way, to compare against, because the
+        // umask decides what permissions that gets.
+        let ordinary = root.path().join("ordinary-directory");
+        fs::create_dir_all(&ordinary).unwrap();
+        assert_eq!(mode(&user), mode(&ordinary));
     }
 
     #[test]
