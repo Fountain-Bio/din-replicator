@@ -24,6 +24,15 @@ The replica is a DIN label that follows ICCBBA ST-001, the ISBT 128 Standard Tec
 
 `CONTEXT.md` defines the terms used in the code and the interface. `docs/adr/` records the decisions behind the design.
 
+## Install
+
+Download from the [latest release](../../releases/latest):
+
+- macOS: the `.dmg`, for a Mac with Apple silicon.
+- Windows: the `.exe`, for 64-bit Windows. It needs administrator rights, and it is not signed yet, so SmartScreen asks for **More info**, then **Run anyway**.
+
+The app updates itself from the releases page. Settings, then About, shows the version and checks for a new one.
+
 ## Requirements
 
 - A Zebra label printer connected by USB and added to the operating system. On macOS, add it in System Settings under Printers. On Windows, install the Zebra driver. The app prints raw ZPL through that print queue.
