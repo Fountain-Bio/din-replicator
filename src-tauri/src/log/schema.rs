@@ -17,7 +17,7 @@ const MIGRATIONS: &[&str] = &[
         id            INTEGER PRIMARY KEY,
         din           TEXT    NOT NULL,
         payload       TEXT    NOT NULL,
-        copies        INTEGER NOT NULL,
+        copy_count    INTEGER NOT NULL,
         printer_name  TEXT    NOT NULL,
         job_id        TEXT    NULL,
         operator_user TEXT    NOT NULL,

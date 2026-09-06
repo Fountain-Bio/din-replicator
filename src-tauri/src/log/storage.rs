@@ -112,8 +112,15 @@ enum Sharing {
 /// for the machine-wide directory [`crate::platform::make_shared`] opens it up
 /// to every account. Without that the next staff account to log in would fail
 /// the probe and get its own private log, which is the failure ADR 0004 exists
-/// to prevent, so a machine-wide directory that cannot be shared counts as a
-/// directory that did not work.
+/// to prevent, so a machine-wide directory the app just made and cannot share
+/// counts as a directory that did not work.
+///
+/// Sharing runs only on the launch that created the directory. Widening a
+/// directory another account owns is refused by the operating system, so an
+/// app that tried it on every launch would fail here for every account except
+/// the one that got there first, and hand all the others a private log. A
+/// directory that is already there and already takes the probe file is one
+/// this account can write, which is all the print log needs from it.
 ///
 /// The per-user fallback is never shared. It holds one account's log by
 /// design, so a machine where sharing fails would otherwise lose its last
@@ -124,14 +131,27 @@ enum Sharing {
 /// reads would fail later, in the middle of a print run. Writing and deleting
 /// a probe file finds that out now.
 fn prepare(dir: &Path, sharing: Sharing) -> io::Result<()> {
+    let already_there = dir.is_dir();
     fs::create_dir_all(dir)?;
-    if sharing == Sharing::EveryAccount {
+    if !already_there && sharing == Sharing::EveryAccount {
         crate::platform::make_shared(dir)?;
     }
-    let probe = dir.join(".write-probe");
+    let probe = dir.join(probe_name());
     fs::write(&probe, b"")?;
     let _ = fs::remove_file(&probe);
     Ok(())
+}
+
+/// The name of the probe file this process writes to prove it can write in a
+/// directory.
+///
+/// The process id is in the name so that each running app gets a name of its
+/// own. A probe left behind by another account, by an app that was killed
+/// between the write and the delete, belongs to that account and cannot be
+/// overwritten by this one. A shared name would turn that leftover file into a
+/// permanent false report that the directory is unwritable.
+fn probe_name() -> String {
+    format!(".write-probe-{}", std::process::id())
 }
 
 #[cfg(test)]
@@ -194,6 +214,58 @@ mod tests {
 
         assert!(location.machine_wide);
         assert_eq!(mode(&machine), 0o777);
+    }
+
+    /// The second account to log in finds the directory already there. Its
+    /// rights belong to the account that created it, and an attempt to widen
+    /// them from another account is refused, so the app leaves them alone and
+    /// lets the write probe answer the only question it has.
+    #[cfg(unix)]
+    #[test]
+    fn a_machine_wide_directory_that_is_already_there_keeps_the_rights_it_has() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let machine = root.path().join("DIN Replicator");
+        fs::create_dir_all(&machine).unwrap();
+        fs::set_permissions(&machine, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let location = choose(&machine, &root.path().join("user")).unwrap();
+
+        assert!(location.machine_wide);
+        assert_eq!(mode(&machine), 0o755);
+    }
+
+    /// A probe file is deleted as soon as it is written, but an app that is
+    /// killed in between leaves one behind. The next account cannot overwrite
+    /// a file another account owns, so the name has to differ per process.
+    #[test]
+    fn a_probe_left_behind_by_another_process_does_not_block_the_check() {
+        let machine = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        let stale = machine.path().join(".write-probe-1");
+        fs::write(&stale, b"").unwrap();
+        // Read-only stands in for a file owned by another account, which this
+        // account may not write either.
+        let mut rights = fs::metadata(&stale).unwrap().permissions();
+        rights.set_readonly(true);
+        fs::set_permissions(&stale, rights).unwrap();
+
+        let location = choose(machine.path(), user.path()).unwrap();
+
+        assert!(location.machine_wide);
+    }
+
+    #[test]
+    fn the_write_probe_is_named_after_this_process_and_is_removed_again() {
+        let directory = tempfile::tempdir().unwrap();
+
+        prepare(directory.path(), Sharing::ThisAccountOnly).unwrap();
+
+        assert!(probe_name().contains(&std::process::id().to_string()));
+        // The directory is empty again, so nothing was left for the next
+        // account to trip over.
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
     }
 
     #[cfg(unix)]

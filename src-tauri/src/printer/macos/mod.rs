@@ -1,12 +1,20 @@
 //! The macOS print path.
 //!
-//! macOS runs CUPS. This module shells out to the two CUPS tools that ship
-//! with every macOS release: `lpstat` to read the queues and `lp` to submit a
-//! job. Both live in `/usr/bin`, and the code names them by full path because
-//! a bundled `.app` does not always inherit a useful `PATH`.
+//! macOS runs CUPS. This module shells out to the CUPS tools that ship with
+//! every macOS release: `lpstat` to list the queues and the address each one
+//! points at, and `lp` to submit a job. Both live in `/usr/bin`, and the code
+//! names them by full path because a bundled `.app` does not always inherit a
+//! useful `PATH`.
+//!
+//! What a queue is doing comes from [`ipp`] instead, because `lpstat` on
+//! macOS 26 no longer prints the reason lines that name a fault. The reading
+//! of `lpstat` output kept here is the fallback for a machine where `ipptool`
+//! does not answer.
 //!
 //! Everything that reads CUPS output is a plain function over a string, so the
 //! tests at the bottom of the file run against captured output.
+
+mod ipp;
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -42,7 +50,7 @@ impl PrinterTransport for Cups {
                 let description = description_from_detail(&stanza.detail).unwrap_or(device);
                 PrinterInfo {
                     is_zebra: super::looks_like_zebra(&[&stanza.name, &description]),
-                    state: state_from_stanza(&stanza.status_line, &stanza.detail),
+                    state: state_of(&stanza),
                     name: stanza.name,
                     description,
                     connection,
@@ -63,7 +71,7 @@ impl PrinterTransport for Cups {
         parse_status(&status)
             .into_iter()
             .find(|stanza| queue_key(&stanza.name) == queue_key(name))
-            .map(|stanza| state_from_stanza(&stanza.status_line, &stanza.detail))
+            .map(|stanza| state_of(&stanza))
             .ok_or_else(|| PrinterError::PrinterNotFound(name.to_string()))
     }
 
@@ -215,7 +223,7 @@ fn parse_devices(text: &str) -> HashMap<String, String> {
     text.lines()
         .filter_map(|line| line.trim().strip_prefix("device for "))
         // The first colon ends the queue name. Later colons belong to the
-        // address, such as the port in `ipp://192.0.2.16:631/...`.
+        // address, such as the port in `ipp://198.51.100.16:631/...`.
         .filter_map(|rest| rest.split_once(':'))
         .map(|(name, uri)| (queue_key(name.trim()), uri.trim().to_string()))
         .collect()
@@ -274,14 +282,29 @@ fn connection_from_uri(uri: &str) -> PrinterConnection {
 /// `//` and the next `/`, `?`, or `#`.
 ///
 /// An authority can carry user information and a port alongside the host,
-/// such as `user:pass@192.0.2.16:631`. Both are stripped: the host is what is
-/// left after the last `@` and before the first `:`.
+/// such as `user:pass@198.51.100.16:631`. Both are stripped: the host is what
+/// is left after the last `@` and before the port.
+///
+/// An IPv6 address is written inside square brackets, as in
+/// `[2001:db8::5]:631`, because the colons in the address would otherwise read
+/// as the separator before the port. The closing bracket is what says where
+/// the address ends. The brackets stay in the host this returns, which is the
+/// form an IPv6 address has to be written in to be used in a URI again.
 fn authority_host(rest: &str) -> String {
     let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..authority_end];
     let without_userinfo = authority
         .rsplit_once('@')
         .map_or(authority, |(_, host)| host);
+
+    if let Some(inside) = without_userinfo.strip_prefix('[') {
+        if let Some(end) = inside.find(']') {
+            // `end` counts from inside the opening bracket, so the closing
+            // bracket sits two characters further along the whole authority.
+            return without_userinfo[..end + 2].to_string();
+        }
+    }
+
     without_userinfo
         .split_once(':')
         .map_or(without_userinfo, |(host, _)| host)
@@ -329,6 +352,18 @@ fn percent_decode(text: &str) -> String {
         index += 1;
     }
     String::from_utf8_lossy(&decoded).into_owned()
+}
+
+/// What one queue is doing.
+///
+/// The answer comes from CUPS over IPP, which is where a media fault and an
+/// unreachable printer still show up on macOS 26. A machine where `ipptool`
+/// gives no answer falls back to reading the `lpstat` stanza, which on an
+/// older macOS carries the same reasons and on a newer one carries at least
+/// whether the queue is enabled.
+fn state_of(stanza: &StatusStanza) -> PrinterState {
+    ipp::printer_state(&stanza.name)
+        .unwrap_or_else(|| state_from_stanza(&stanza.status_line, &stanza.detail))
 }
 
 /// Reads the state out of one stanza.
@@ -395,20 +430,21 @@ fn parse_job_id(stdout: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// Real output from a clinic Mac, with the two Zebra queues in it.
+    /// `lpstat -p` output in the form a Mac with several queues prints it,
+    /// two of them Zebras. The queue names are invented.
     const SHORT_STATUS: &str = "\
 printer Brother_HL_L2460DW is idle.  enabled since Thu Aug 13 16:12:29 2026
 printer Lab_Brother is idle.  enabled since Thu Jul 23 10:37:58 2026
 printer Lab_Zebra is idle.  enabled since Wed Aug 26 14:24:51 2026
-printer Zebra_Stock_Room is idle.  enabled since Thu Aug 13 14:49:03 2026
+printer Stock_Room_Zebra is idle.  enabled since Thu Aug 13 14:49:03 2026
 ";
 
-    /// Real `lpstat -v` output from the same Mac.
+    /// `lpstat -v` output for the same queues.
     const DEVICES: &str = "\
-device for Brother_HL_L2460DW: ipp://192.0.2.16/printers/brother_stockroom_l2460
+device for Brother_HL_L2460DW: ipp://198.51.100.16/printers/brother_stock_room_l2460
 device for Lab_Brother: ipp://192.0.2.14/printers/brother_lab
 device for Lab_Zebra: ipp://192.0.2.14/printers/zebra_lab
-device for Zebra_Stock_Room: ipp://192.0.2.16:631/printers/zebra_stockroom
+device for Stock_Room_Zebra: ipp://198.51.100.16:631/printers/stock_room_zebra
 ";
 
     /// The long form, with the indented lines CUPS adds for a queue that is
@@ -416,9 +452,9 @@ device for Zebra_Stock_Room: ipp://192.0.2.16:631/printers/zebra_stockroom
     const LONG_STATUS: &str = "\
 printer Lab_Zebra is idle.  enabled since Wed Aug 26 14:24:51 2026
 \tDescription: Lab Zebra
-\tLocation: draw room
+\tLocation: Lab draw room
 \tAlerts: none
-printer Zebra_Stock_Room disabled since Tue Sep 01 09:00:00 2026 -
+printer Stock_Room_Zebra disabled since Tue Sep 01 09:00:00 2026 -
 \tPaused
 printer Front_Desk_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
 \tDescription: Front desk Zebra
@@ -427,7 +463,7 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
 \tAlerts: offline-report
 ";
 
-    fn state_of(text: &str, name: &str) -> PrinterState {
+    fn state_from_text(text: &str, name: &str) -> PrinterState {
         let stanza = parse_status(text)
             .into_iter()
             .find(|stanza| stanza.name == name)
@@ -447,7 +483,7 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
                 "Brother_HL_L2460DW",
                 "Lab_Brother",
                 "Lab_Zebra",
-                "Zebra_Stock_Room"
+                "Stock_Room_Zebra"
             ]
         );
     }
@@ -461,13 +497,16 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
 
     #[test]
     fn an_idle_queue_is_ready() {
-        assert_eq!(state_of(SHORT_STATUS, "Lab_Zebra"), PrinterState::Ready);
+        assert_eq!(
+            state_from_text(SHORT_STATUS, "Lab_Zebra"),
+            PrinterState::Ready
+        );
     }
 
     #[test]
     fn a_disabled_queue_is_paused() {
         assert_eq!(
-            state_of(LONG_STATUS, "Zebra_Stock_Room"),
+            state_from_text(LONG_STATUS, "Stock_Room_Zebra"),
             PrinterState::Paused
         );
     }
@@ -475,7 +514,7 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
     #[test]
     fn a_media_reason_is_an_error() {
         assert_eq!(
-            state_of(LONG_STATUS, "Front_Desk_Zebra"),
+            state_from_text(LONG_STATUS, "Front_Desk_Zebra"),
             PrinterState::Error(fault::MEDIA_EMPTY.into())
         );
     }
@@ -483,7 +522,7 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
     #[test]
     fn an_offline_reason_beats_the_idle_header() {
         assert_eq!(
-            state_of(LONG_STATUS, "Back_Room_Zebra"),
+            state_from_text(LONG_STATUS, "Back_Room_Zebra"),
             PrinterState::Offline
         );
     }
@@ -491,20 +530,20 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
     #[test]
     fn a_running_job_still_counts_as_ready() {
         let text = "printer Lab_Zebra now printing Lab_Zebra-42.  enabled since Wed Aug 26 14:24:51 2026\n";
-        assert_eq!(state_of(text, "Lab_Zebra"), PrinterState::Ready);
+        assert_eq!(state_from_text(text, "Lab_Zebra"), PrinterState::Ready);
     }
 
     #[test]
     fn a_header_cups_never_prints_is_unknown() {
         let text = "printer Lab_Zebra is doing something new.\n";
-        assert_eq!(state_of(text, "Lab_Zebra"), PrinterState::Unknown);
+        assert_eq!(state_from_text(text, "Lab_Zebra"), PrinterState::Unknown);
     }
 
     /// A description an administrator typed must not be read as a state.
     #[test]
     fn words_in_the_description_do_not_change_the_state() {
         let text = "printer Lab_Zebra is idle.  enabled since Wed Aug 26 14:24:51 2026\n\tDescription: Paused for repairs, media-empty spare\n";
-        assert_eq!(state_of(text, "Lab_Zebra"), PrinterState::Ready);
+        assert_eq!(state_from_text(text, "Lab_Zebra"), PrinterState::Ready);
     }
 
     #[test]
@@ -538,8 +577,8 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
         // The port in this address belongs to the address. Splitting at the
         // wrong colon would cut the queue name out of the middle of it.
         assert_eq!(
-            devices.get("zebra_stockroom").map(String::as_str),
-            Some("ipp://192.0.2.16:631/printers/zebra_stockroom")
+            devices.get("stock_room_zebra").map(String::as_str),
+            Some("ipp://198.51.100.16:631/printers/stock_room_zebra")
         );
         assert_eq!(devices.len(), 4);
     }
@@ -550,7 +589,7 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
     fn device_addresses_are_found_whatever_the_case() {
         let devices = parse_devices(DEVICES);
         assert_eq!(
-            devices.get(&queue_key("BURBANK_zebra")).map(String::as_str),
+            devices.get(&queue_key("LAB_zebra")).map(String::as_str),
             Some("ipp://192.0.2.14/printers/zebra_lab")
         );
     }
@@ -558,7 +597,7 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
     #[test]
     fn queue_names_are_compared_without_regard_to_case() {
         assert_eq!(queue_key("Lab_Zebra"), queue_key("lab_zebra"));
-        assert_ne!(queue_key("Lab_Zebra"), queue_key("Zebra_Stock_Room"));
+        assert_ne!(queue_key("Lab_Zebra"), queue_key("Stock_Room_Zebra"));
     }
 
     /// An enabled queue that holds every new job leaves a replica waiting just
@@ -566,7 +605,7 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
     #[test]
     fn a_queue_holding_new_jobs_is_paused() {
         let text = "printer Lab_Zebra is idle.  enabled since Wed Aug 26 14:24:51 2026 - is holding new jobs\n";
-        assert_eq!(state_of(text, "Lab_Zebra"), PrinterState::Paused);
+        assert_eq!(state_from_text(text, "Lab_Zebra"), PrinterState::Paused);
     }
 
     #[test]
@@ -575,10 +614,7 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
         let zebra = devices.get("lab_zebra").unwrap();
         assert!(super::super::looks_like_zebra(&["Lab_Zebra", zebra]));
         let brother = devices.get("lab_brother").unwrap();
-        assert!(!super::super::looks_like_zebra(&[
-            "Lab_Brother",
-            brother
-        ]));
+        assert!(!super::super::looks_like_zebra(&["Lab_Brother", brother]));
     }
 
     #[test]
@@ -594,7 +630,8 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
         assert_eq!(parse_job_id(""), None);
     }
 
-    /// A real device URI from this machine, for the one Zebra wired by USB.
+    /// The device URI CUPS reports for a Zebra wired by USB, with an
+    /// invented serial number.
     #[test]
     fn a_usb_uri_is_a_usb_connection_with_no_host() {
         assert_eq!(
@@ -624,10 +661,10 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
     #[test]
     fn an_ipp_uri_with_a_port_strips_it_from_the_host() {
         assert_eq!(
-            connection_from_uri("ipp://192.0.2.16:631/printers/zebra_stockroom"),
+            connection_from_uri("ipp://198.51.100.16:631/printers/stock_room_zebra"),
             PrinterConnection {
                 kind: ConnectionKind::Network,
-                host: Some("192.0.2.16".into()),
+                host: Some("198.51.100.16".into()),
             }
         );
     }
@@ -672,6 +709,54 @@ printer Back_Room_Zebra is idle.  enabled since Tue Sep 01 08:00:00 2026
             PrinterConnection {
                 kind: ConnectionKind::Network,
                 host: Some("Zebra ZD411".into()),
+            }
+        );
+    }
+
+    /// An IPv6 address holds colons of its own, so a URI writes it inside
+    /// square brackets and puts the port after the closing bracket.
+    #[test]
+    fn an_ipv6_host_keeps_its_brackets_and_loses_the_port() {
+        assert_eq!(
+            connection_from_uri("ipp://[2001:db8::5]:631/printers/lab_zebra"),
+            PrinterConnection {
+                kind: ConnectionKind::Network,
+                host: Some("[2001:db8::5]".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn an_ipv6_host_without_a_port_is_read_whole() {
+        assert_eq!(
+            connection_from_uri("ipp://[2001:db8::5]/printers/lab_zebra"),
+            PrinterConnection {
+                kind: ConnectionKind::Network,
+                host: Some("[2001:db8::5]".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn user_information_is_stripped_from_an_ipv6_host() {
+        assert_eq!(
+            connection_from_uri("ipp://guest:guest@[2001:db8::5]:631/printers/lab_zebra"),
+            PrinterConnection {
+                kind: ConnectionKind::Network,
+                host: Some("[2001:db8::5]".into()),
+            }
+        );
+    }
+
+    /// A bracket that never closes is not an address. Falling back to the
+    /// ordinary rule keeps the rest of the URI out of the host.
+    #[test]
+    fn an_opening_bracket_with_no_closing_one_is_read_as_ordinary_text() {
+        assert_eq!(
+            connection_from_uri("ipp://[2001:db8::5/printers/lab_zebra"),
+            PrinterConnection {
+                kind: ConnectionKind::Network,
+                host: Some("[2001".into()),
             }
         );
     }

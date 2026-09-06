@@ -91,7 +91,7 @@ let nextPrintRunId = 1;
  */
 const SEED_PRINT_RUNS: Array<{
   din: string;
-  copies: number;
+  copyCount: number;
   operatorUser: string;
   hostname: string;
   /** How many minutes before the page loaded this print run happened. */
@@ -100,7 +100,7 @@ const SEED_PRINT_RUNS: Array<{
 }> = [
   {
     din: "W483626000011",
-    copies: 2,
+    copyCount: 2,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 4,
@@ -108,7 +108,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "W483626000010",
-    copies: 1,
+    copyCount: 1,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 21,
@@ -116,7 +116,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "W483626000009",
-    copies: 4,
+    copyCount: 4,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 55,
@@ -124,7 +124,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "G112625904418",
-    copies: 1,
+    copyCount: 1,
     operatorUser: "j.lindqvist",
     hostname: "collection-room-2",
     minutesAgo: 140,
@@ -132,7 +132,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "G112625904417",
-    copies: 3,
+    copyCount: 3,
     operatorUser: "j.lindqvist",
     hostname: "collection-room-2",
     minutesAgo: 168,
@@ -140,7 +140,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "W483626000008",
-    copies: 1,
+    copyCount: 1,
     operatorUser: "j.lindqvist",
     hostname: "collection-room-2",
     minutesAgo: 1_500,
@@ -148,7 +148,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "W483626000007",
-    copies: 12,
+    copyCount: 12,
     operatorUser: "a.mendes",
     hostname: "front-desk-1",
     minutesAgo: 1_620,
@@ -156,7 +156,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "N902625000442",
-    copies: 2,
+    copyCount: 2,
     operatorUser: "a.mendes",
     hostname: "front-desk-1",
     minutesAgo: 1_705,
@@ -164,7 +164,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "N902625000441",
-    copies: 1,
+    copyCount: 1,
     operatorUser: "a.mendes",
     hostname: "front-desk-1",
     minutesAgo: 2_880,
@@ -172,7 +172,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "N902625000440",
-    copies: 6,
+    copyCount: 6,
     operatorUser: "a.mendes",
     hostname: "front-desk-1",
     minutesAgo: 2_950,
@@ -180,7 +180,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "W483625998201",
-    copies: 1,
+    copyCount: 1,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 4_320,
@@ -188,7 +188,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "W483625998200",
-    copies: 2,
+    copyCount: 2,
     operatorUser: "r.okafor",
     hostname: "collection-room-2",
     minutesAgo: 4_400,
@@ -196,7 +196,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "G112625903990",
-    copies: 1,
+    copyCount: 1,
     operatorUser: "j.lindqvist",
     hostname: "front-desk-1",
     minutesAgo: 5_760,
@@ -204,7 +204,7 @@ const SEED_PRINT_RUNS: Array<{
   },
   {
     din: "G112625903989",
-    copies: 8,
+    copyCount: 8,
     operatorUser: "j.lindqvist",
     hostname: "front-desk-1",
     minutesAgo: 5_900,
@@ -220,7 +220,7 @@ for (const seed of [...SEED_PRINT_RUNS].reverse()) {
     id: nextPrintRunId,
     din: seed.din,
     payload: `=${seed.din}00`,
-    copies: seed.copies,
+    copyCount: seed.copyCount,
     printerName: printers[0]!.name,
     jobId: `mock-${nextPrintRunId}`,
     operatorUser: seed.operatorUser,
@@ -308,7 +308,7 @@ function runCommand(command: string, args: Record<string, unknown>): unknown {
         id: nextPrintRunId,
         din: input.din,
         payload: input.payload,
-        copies: input.copies,
+        copyCount: input.copyCount,
         printerName: input.printerName,
         jobId: input.jobId,
         operatorUser: "dev",

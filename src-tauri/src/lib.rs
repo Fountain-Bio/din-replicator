@@ -30,7 +30,6 @@ pub fn run() {
             commands::record_print_run,
             commands::record_verification,
             commands::list_print_runs,
-            commands::get_print_run,
             commands::get_settings,
             commands::set_settings,
             commands::storage_info,

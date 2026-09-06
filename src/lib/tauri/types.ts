@@ -95,7 +95,7 @@ export interface PrintRun {
   /** The 16-character barcode payload the replicas carry. */
   payload: string;
   /** Copy count: how many replicas this print run produced. */
-  copies: number;
+  copyCount: number;
   /** The name of the printer the print run went to. */
   printerName: string;
   jobId: string | null;
@@ -115,7 +115,7 @@ export interface PrintRun {
 export interface PrintRunInput {
   din: string;
   payload: string;
-  copies: number;
+  copyCount: number;
   printerName: string;
   jobId: string | null;
   zpl: string;

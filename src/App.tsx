@@ -268,7 +268,14 @@ export default function App() {
 
     // The replicas are printing from here on.
     try {
-      const run = await recordPrintRun({ din, payload, copies, printerName, jobId, zpl });
+      const run = await recordPrintRun({
+        din,
+        payload,
+        copyCount: copies,
+        printerName,
+        jobId,
+        zpl,
+      });
       dispatch({
         type: "print-succeeded",
         printRunId: run.id,

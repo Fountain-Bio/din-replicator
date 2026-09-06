@@ -96,7 +96,7 @@ export function HistoryScreen({ onPrintAgain }: HistoryScreenProps) {
 
   const printAgain = useCallback(
     (run: PrintRun) => {
-      onPrintAgain(run.din, run.copies);
+      onPrintAgain(run.din, run.copyCount);
     },
     [onPrintAgain],
   );

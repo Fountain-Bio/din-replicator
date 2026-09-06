@@ -12,6 +12,10 @@ use std::process::Command;
 /// the real one from the environment first.
 const PROGRAM_DATA_FALLBACK: &str = r"C:\ProgramData";
 
+/// Where Windows is installed when the environment does not say. `icacls`
+/// lives under this directory.
+const SYSTEM_ROOT_FALLBACK: &str = r"C:\Windows";
+
 /// The well known security identifier of the local `Users` group, which every
 /// account that can log in belongs to. The identifier is used rather than the
 /// group name because the name is translated on a localized Windows.
@@ -41,6 +45,22 @@ fn program_data_dir(from_environment: Option<OsString>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(PROGRAM_DATA_FALLBACK))
 }
 
+/// The full path of the `icacls` program.
+///
+/// Windows keeps it in the system directory of the installation the machine
+/// booted from, which the `SystemRoot` environment variable names. The full
+/// path is used rather than the bare program name so that a program called
+/// `icacls.exe` in the working directory or anywhere else on `PATH` cannot be
+/// run in its place.
+fn icacls(from_environment: Option<OsString>) -> PathBuf {
+    from_environment
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(SYSTEM_ROOT_FALLBACK))
+        .join("System32")
+        .join("icacls.exe")
+}
+
 /// Opens `path` up to every account on this machine.
 ///
 /// A new directory under ProgramData is writable only by whoever created it,
@@ -56,7 +76,7 @@ pub fn make_shared(path: &Path) -> io::Result<()> {
         return Ok(());
     }
 
-    let result = Command::new("icacls")
+    let result = Command::new(icacls(std::env::var_os("SystemRoot")))
         .arg(path)
         .arg("/grant")
         .arg(format!("{LOCAL_USERS_GROUP}:(OI)(CI)M"))
@@ -92,6 +112,26 @@ mod tests {
         assert_eq!(
             program_data_dir(Some(OsString::new())),
             PathBuf::from(r"C:\ProgramData")
+        );
+    }
+
+    #[test]
+    fn icacls_is_named_by_its_full_path_in_the_system_directory() {
+        assert_eq!(
+            icacls(Some(OsString::from(r"D:\Windows"))),
+            PathBuf::from(r"D:\Windows\System32\icacls.exe")
+        );
+    }
+
+    #[test]
+    fn a_missing_or_empty_system_root_falls_back_to_the_stock_windows_directory() {
+        assert_eq!(
+            icacls(None),
+            PathBuf::from(r"C:\Windows\System32\icacls.exe")
+        );
+        assert_eq!(
+            icacls(Some(OsString::new())),
+            PathBuf::from(r"C:\Windows\System32\icacls.exe")
         );
     }
 

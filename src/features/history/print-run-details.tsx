@@ -72,7 +72,7 @@ function Body({ run, onPrintAgain }: { run: PrintRun; onPrintAgain: (run: PrintR
         </Field>
         <Field label="Copy count">
           <span className="tabular-nums">
-            {run.copies} {run.copies === 1 ? "replica" : "replicas"}
+            {run.copyCount} {run.copyCount === 1 ? "replica" : "replicas"}
           </span>
         </Field>
         <Field label="Printed at">{fullTime(run.printedAt)}</Field>

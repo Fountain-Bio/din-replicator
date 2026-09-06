@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn zebra_is_found_by_queue_name() {
         assert!(looks_like_zebra(&["Lab_Zebra", ""]));
-        assert!(looks_like_zebra(&["Zebra_Stock_Room", ""]));
+        assert!(looks_like_zebra(&["Stock_Room_Zebra", ""]));
     }
 
     #[test]
@@ -243,7 +243,7 @@ mod tests {
     fn other_printers_are_not_zebras() {
         assert!(!looks_like_zebra(&[
             "Brother_HL_L2460DW",
-            "ipp://192.0.2.16/printers/brother_stockroom_l2460"
+            "ipp://198.51.100.16/printers/brother_stock_room_l2460"
         ]));
     }
 

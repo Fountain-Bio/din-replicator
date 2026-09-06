@@ -58,7 +58,7 @@ export const PRINTED_AT_COLUMN_ID = "printedAt";
 export const COLUMN_LAYOUT: Record<string, { width: string; align?: string }> = {
   printedAt: { width: "20%" },
   din: { width: "auto" },
-  copies: { width: "10%", align: "text-right" },
+  copyCount: { width: "10%", align: "text-right" },
   verification: { width: "16%" },
   actions: { width: "9.5rem", align: "text-right" },
 };
@@ -182,10 +182,10 @@ export function historyColumns({ onPrintAgain }: HistoryColumnActions) {
       },
     }),
 
-    helper.accessor("copies", {
-      id: "copies",
+    helper.accessor("copyCount", {
+      id: "copyCount",
       header: () => <span className="block text-right">Copies</span>,
-      cell: ({ row }) => <span className="tabular-nums">{row.original.copies}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{row.original.copyCount}</span>,
     }),
 
     helper.accessor((run) => verificationText(run), {

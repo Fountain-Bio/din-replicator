@@ -98,12 +98,6 @@ pub fn list_print_runs(
     log.store()?.list_print_runs(query)
 }
 
-/// One print run by id, for the screen that shows a single print run.
-#[tauri::command]
-pub fn get_print_run(log: State<'_, LogState>, id: i64) -> Result<PrintRun, LogError> {
-    log.store()?.print_run(id)
-}
-
 /// The settings this machine remembers, with defaults for anything never set.
 #[tauri::command]
 pub fn get_settings(log: State<'_, LogState>) -> Result<Settings, LogError> {
