@@ -9,10 +9,14 @@
  */
 
 import { checkCharacter, isCheckCharacter } from "./check-character";
-import { DIN_LENGTH, isFlagCharacters, validateDin, type DinInvalidReason } from "./din";
-
-/** ST-001 section 2.4.1: Data Structure 001 starts with "=". */
-const DIN_DATA_IDENTIFIER = "=";
+import {
+  DEFAULT_FLAG_CHARACTERS,
+  DIN_DATA_IDENTIFIER,
+  DIN_LENGTH,
+  isFlagCharacters,
+  validateDin,
+  type DinInvalidReason,
+} from "./din";
 
 /** The length of "=" plus the DIN plus one check character, the the earlier label tool form. */
 const LEGACY_CHECK_LENGTH = 1 + DIN_LENGTH + 1;
@@ -43,24 +47,35 @@ export type NotDinReason =
   | "product-code"
   /** ISBT 128 expiration date or date and time, data identifier "=>" or "&>". */
   | "expiration"
+  /**
+   * The scan is "=" and a valid DIN followed by two characters that ST-001 does
+   * not allow as flag characters and that are not a check character followed by
+   * the "0" a scanner rule appends.
+   */
+  | "bad-flag-characters"
   /** Some other ISBT 128 structure, such as one starting with "&,". */
   | "other-isbt128-structure"
   /** Nothing about the scan resembles ISBT 128. */
   | "unrecognized";
 
-/** What a scan turned out to be. */
+/**
+ * What a scan turned out to be. The `form` decides which fields a DIN result
+ * carries, so a UI that switches on `form` reads them without optional access.
+ */
 export type ScanResult =
+  /** The bare DIN, with nothing else to report. */
+  | { kind: "din"; din: string; form: "bare" }
+  /** The compliant payload, which carries the two flag characters it encoded. */
+  | { kind: "din"; din: string; form: "payload"; flags: string }
+  /** A the earlier label tool form, which carries the check character the scan held. */
   | {
       kind: "din";
-      /** The bare 13-character DIN, uppercase. */
       din: string;
-      form: ScanForm;
-      /** The two flag characters, present only for the compliant payload form. */
-      flags?: string;
-      /** The check character the scan carried, present only for the two legacy forms. */
-      scannedCheck?: string;
+      form: "legacy-check" | "legacy-check-suffixed";
+      /** The check character the scan carried. */
+      scannedCheck: string;
       /** Whether `scannedCheck` equals the check character computed from `din`. */
-      checkMatches?: boolean;
+      checkMatches: boolean;
     }
   | { kind: "not-din"; reason: NotDinReason };
 
@@ -115,15 +130,22 @@ export function parseScan(raw: string): ScanResult {
  *
  * Both the compliant payload and the suffixed the earlier label tool form are 16
  * characters, so the two trailing characters decide which one arrived. The scan
- * is the compliant payload when both trailing characters are legal flag
- * characters and the pair is not the check character followed by "0".
+ * is the suffixed the earlier label tool form when the trailing pair is the check
+ * character of the DIN followed by "0". Anything else that is a legal pair of
+ * flag characters is the compliant payload.
  *
- * One pair stays ambiguous. A compliant payload whose flag characters happen to
- * be the check character followed by "0" looks exactly like the the earlier label tool
- * form after the scanner rule appended its "0". Both readings give the same
- * DIN, so the DIN this app prints is the same either way. The only difference
- * is that this function compares the check character instead of reporting flag
- * characters.
+ * Two pairs need care.
+ *
+ * A payload whose flag characters happen to be the check character followed by
+ * "0" is indistinguishable from the the earlier label tool form after a scanner rule
+ * appended its "0". Both readings give the same DIN, so the replica this app
+ * prints is the same either way. The only difference is that the result reports
+ * a check character comparison instead of flag characters.
+ *
+ * "00" is the exception, because it is the payload this app prints itself. One
+ * DIN in thirty-seven has "0" as its check character, and reading those scans
+ * as the the earlier label tool form would misreport this app's own replicas. A
+ * trailing "00" is always the compliant payload.
  */
 function parseDinStructure(scan: string): ScanResult {
   const din = scan.slice(1, 1 + DIN_LENGTH);
@@ -149,17 +171,22 @@ function parseDinStructure(scan: string): ScanResult {
   }
 
   const [first, second] = trailing;
-  if (isFlagCharacters(trailing) && !(first === check && second === "0")) {
-    return { kind: "din", din, form: "payload", flags: trailing };
-  }
-  if (second === "0" && isCheckCharacter(first)) {
+  const looksLikeLegacySuffix =
+    first === check && second === "0" && trailing !== DEFAULT_FLAG_CHARACTERS;
+
+  if (looksLikeLegacySuffix) {
+    // The check character is what made this pair the suffixed form, so it
+    // always matches the DIN.
     return {
       kind: "din",
       din,
       form: "legacy-check-suffixed",
       scannedCheck: first,
-      checkMatches: first === check,
+      checkMatches: true,
     };
   }
-  return { kind: "not-din", reason: "other-isbt128-structure" };
+  if (isFlagCharacters(trailing)) {
+    return { kind: "din", din, form: "payload", flags: trailing };
+  }
+  return { kind: "not-din", reason: "bad-flag-characters" };
 }

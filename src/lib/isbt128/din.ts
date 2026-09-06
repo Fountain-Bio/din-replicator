@@ -12,7 +12,7 @@ export const DIN_LENGTH = 13;
  * ST-001 section 2.4.1 defines Data Structure 001 as "=" followed by the DIN
  * and the two flag characters.
  */
-const DIN_DATA_IDENTIFIER = "=";
+export const DIN_DATA_IDENTIFIER = "=";
 
 /** The flag characters this app prints. "00" means no flag is in use. */
 export const DEFAULT_FLAG_CHARACTERS = "00";
@@ -129,17 +129,24 @@ export function barcodePayload(din: string, flags: string = DEFAULT_FLAG_CHARACT
  * a DIN barcode: the FIN, a space, the two-digit year, a space, and the
  * six-digit sequence. The flag characters and the boxed check character sit
  * beside that text. The caller decides where each part goes on the label.
+ *
+ * `flags` takes the same values as in `barcodePayload`. A label prints the flag
+ * characters that its barcode encodes, so a caller that passes flag characters
+ * to one function passes the same ones to the other.
  */
-export function eyeReadable(din: string): EyeReadable {
+export function eyeReadable(din: string, flags: string = DEFAULT_FLAG_CHARACTERS): EyeReadable {
   const validation = validateDin(din);
   if (!validation.ok) {
     throw new Error(`Cannot build eye-readable text from "${din}": ${validation.reason}`);
+  }
+  if (!isFlagCharacters(flags)) {
+    throw new Error(`Cannot build eye-readable text with flag characters "${flags}"`);
   }
   return {
     fin: validation.fin,
     year: validation.year,
     sequence: validation.sequence,
-    flags: DEFAULT_FLAG_CHARACTERS,
+    flags,
     check: checkCharacter(din),
     text: `${validation.fin} ${validation.year} ${validation.sequence}`,
   };

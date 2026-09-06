@@ -80,7 +80,16 @@ describe("eyeReadable", () => {
     });
   });
 
+  it("reports the flag characters the caller asks for, the same ones the barcode encodes", () => {
+    expect(eyeReadable(FOUNTAIN_DIN, "A1").flags).toBe("A1");
+    expect(barcodePayload(FOUNTAIN_DIN, "A1")).toBe("=W483626000011A1");
+  });
+
   it("throws on a DIN that breaks a structure rule", () => {
     expect(() => eyeReadable("W483626X00011")).toThrow();
+  });
+
+  it("throws on flag characters that ST-001 does not allow", () => {
+    expect(() => eyeReadable(FOUNTAIN_DIN, "OO")).toThrow();
   });
 });

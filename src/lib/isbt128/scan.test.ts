@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { checkCharacter } from "./check-character";
 import { barcodePayload } from "./din";
 import { parseScan } from "./scan";
 
 /** The DIN on the real the facility source label. Its check character is N. */
 const FOUNTAIN_DIN = "W483626000011";
+
+/** A DIN from the same the facility set whose check character is "0". */
+const ZERO_CHECK_DIN = "W483626000289";
 
 describe("parseScan", () => {
   it("reads a bare DIN", () => {
@@ -51,8 +55,9 @@ describe("parseScan", () => {
 
   /**
    * "X0" is a legal pair of flag characters and "X" is not the check character
-   * of this DIN, so the scan is the compliant payload. Only the check character
-   * followed by "0" is ambiguous, and `parseDinStructure` explains why.
+   * of this DIN, so the scan is the compliant payload. The check character
+   * followed by "0" is the only ambiguous pair, and `parseDinStructure`
+   * explains why.
    */
   it("treats a 16-character scan whose trailing pair is not K and 0 as flag characters", () => {
     expect(parseScan("=W483626000011X0")).toEqual({
@@ -60,6 +65,28 @@ describe("parseScan", () => {
       din: FOUNTAIN_DIN,
       form: "payload",
       flags: "X0",
+    });
+  });
+
+  /**
+   * One DIN in thirty-seven has "0" as its check character. Reading a trailing
+   * "00" as the the earlier label tool form would misreport the replicas this app
+   * prints for those DINs.
+   */
+  it("reads a trailing 00 as flag characters even when the check character is 0", () => {
+    expect(checkCharacter(ZERO_CHECK_DIN)).toBe("0");
+    expect(parseScan("=W48362600028900")).toEqual({
+      kind: "din",
+      din: ZERO_CHECK_DIN,
+      form: "payload",
+      flags: "00",
+    });
+  });
+
+  it("reports two trailing characters that are neither flag characters nor a check character and 0", () => {
+    expect(parseScan("=W483626000011IZ")).toEqual({
+      kind: "not-din",
+      reason: "bad-flag-characters",
     });
   });
 
