@@ -55,84 +55,143 @@ export const MODULE_WIDTH_CHOICES_DOTS = [3, 2] as const;
 export const QUIET_ZONE_MIN_MODULES = 10;
 
 /**
- * Height of the bars in dots. 90 dots at 300 dpi is 7.6 mm. ST-001 section 6.1.3 asks for at
- * least 5 mm, or 15 percent of the bar code length if that is greater. The longest symbol
- * this app prints is 145 modules at 0.254 mm, which is 36.8 mm, and 15 percent of that is
- * 5.5 mm.
+ * Height of the bars in dots. 110 dots at 300 dpi is 9.3 mm, and the bars stand about three
+ * times the cap height of the text below them, matching the source labels. ST-001 section
+ * 6.1.3 asks for at least 5 mm, or 15 percent of the bar code length if that is greater. The
+ * longest symbol this app prints is 145 modules at 0.254 mm, which is 36.8 mm, and 15 percent
+ * of that is 5.5 mm.
  */
-export const BAR_HEIGHT_DOTS = 90;
+export const BAR_HEIGHT_DOTS = 110;
 
 /** Distance from the top edge of the label to the top of the bars. */
-const BARCODE_TOP_DOTS = 36;
+const BARCODE_TOP_DOTS = 20;
 
 /**
- * Gap between the bottom of the bars and the top of the eye-readable text. ST-001 section
+ * Gap between the bottom of the bars and the top of the eye-readable line. ST-001 section
  * 6.1.3 allows no printing in direct contact with the top or bottom of the bar code.
  */
-const BAR_TO_TEXT_GAP_DOTS = 30;
+const BAR_TO_LINE_GAP_DOTS = 10;
+
+/** White space between the DIN, the flag characters, and the box, as the source labels set it. */
+const LINE_GAP_DOTS = 8;
+
+/** White space the eye-readable line leaves at the left edge of the label. */
+export const LEFT_MARGIN_DOTS = 20;
 
 /**
- * Height of the eye-readable DIN in dots. 30 dots at 300 dpi is 2.5 mm. ST-001 section 7.4.2.1
- * caps most bar code text at 2 mm, and section 7.4.1 lifts that cap for the DIN so it can be
- * printed in a larger font.
- */
-export const TEXT_HEIGHT_DOTS = 30;
-
-/**
- * Widest a single glyph of ZPL font 0 gets at a 30 dot height. Font 0 is proportional, so the
- * printed width of the DIN depends on which characters it holds. `W` is the widest character
- * a DIN can contain and it advances 25 dots, measured by rendering font 0 at `^A0N,30,30`.
- */
-export const MAX_GLYPH_WIDTH_DOTS = 25;
-
-/** Width of a space in ZPL font 0 at a 30 dot height, measured the same way. */
-export const SPACE_WIDTH_DOTS = 7;
-
-/** The eye-readable DIN is 13 data characters with a space after the FIN and after the year. */
-const DIN_TEXT_GLYPHS = 13;
-const DIN_TEXT_SPACES = 2;
-
-/**
- * Room the eye-readable DIN gets on the label.
+ * Font heights the eye-readable line may use, tallest first.
  *
- * The widest DIN this app can print is three `W` characters followed by ten digits, which
- * measures 238 dots. Reserving 13 widest-case glyphs and two spaces gives 339 dots, so the
- * DIN cannot run into the flag characters whatever it holds.
+ * The line has to reach from the left margin to the right end of the bars, and a DIN with
+ * wide characters or a narrow bar code needs a smaller font to get there. `buildReplicaZpl`
+ * takes the first height on this list whose line fits.
  */
-export const DIN_TEXT_WIDTH_DOTS =
-  DIN_TEXT_GLYPHS * MAX_GLYPH_WIDTH_DOTS + DIN_TEXT_SPACES * SPACE_WIDTH_DOTS;
+export const FONT_HEIGHT_CHOICES_DOTS = [50, 46, 42, 38, 34, 30] as const;
 
 /**
- * Width of the flag character field. The flag characters are turned a quarter turn, so the
- * field is as wide as the font is tall.
+ * How wide each character of ZPL font 0 is, as a fraction of the font height.
+ *
+ * Font 0 is proportional, so the printed DIN is only as wide as its own characters. These
+ * ratios come from rendering every character a DIN can hold at font heights 30 and 50 and
+ * measuring the advance; the two sets agree, so the ratios hold at every height in between.
+ *
+ * The printer's font 0 is CG Triumvirate Bold Condensed, which is narrower than the face the
+ * preview renderer draws. Sizing the line from the preview's measurements therefore leaves
+ * the printed line a little narrower than planned, never wider.
  */
-const FLAGS_FONT_DOTS = 26;
+const GLYPH_ADVANCE_RATIO: Record<string, number> = {
+  ...Object.fromEntries([..."0123456789EFLTZ"].map((c) => [c, 0.5])),
+  ...Object.fromEntries([..."ABCKPSVXY"].map((c) => [c, 0.556])),
+  ...Object.fromEntries([..."DGHNQRU"].map((c) => [c, 0.611])),
+  I: 0.278,
+  J: 0.444,
+  M: 0.778,
+  W: 0.833,
+};
 
-/** White space between the flag characters and the box around the check character. */
-const FLAGS_TO_CHECK_BOX_GAP_DOTS = 26;
+/** Advance of a character this table does not list. `W` is the widest font 0 gets. */
+const WIDEST_ADVANCE_RATIO = 0.833;
+
+/** Advance of a space in ZPL font 0, as a fraction of the font height. */
+const SPACE_ADVANCE_RATIO = 0.234;
+
+/**
+ * White space ZPL font 0 leaves after the last character of a field, as a fraction of the font
+ * height. An advance carries this trailing side bearing, but the ink stops before it, so the
+ * last character's share comes off the width of a whole string.
+ */
+const TRAILING_BEARING_RATIO = 0.155;
+
+/**
+ * Height of a capital letter in ZPL font 0, as a fraction of the font height. The rotated flag
+ * characters lie on their side, so this is also how far across the label they reach.
+ */
+const CAP_HEIGHT_RATIO = 0.78;
+
+/** How far a rotated field's ink sits right of its `^FO` origin, as a fraction of the height. */
+const ROTATED_INK_LEFT_RATIO = 0.22;
+
+/** How far below its `^FO` origin a rotated field's ink starts. */
+const ROTATED_INK_TOP_DOTS = 2;
+
+/** How far the two rotated flag characters reach down the label, as a fraction of the height. */
+const ROTATED_INK_HEIGHT_RATIO = 0.91;
+
+/** How far above its `^FO` origin an upright field's ink starts. */
+const UPRIGHT_INK_TOP_DOTS = 2;
 
 /** Outside size of the box that holds the check character. */
-const CHECK_BOX_SIZE_DOTS = 44;
+const CHECK_BOX_SIZE_DOTS = 56;
 /** Line thickness of the box that holds the check character. */
 const CHECK_BOX_THICKNESS_DOTS = 3;
-/** Distance from the left edge of the box to the check character glyph. */
-const CHECK_GLYPH_INSET_X_DOTS = 13;
-/** Distance from the top edge of the box to the check character glyph. */
-const CHECK_GLYPH_INSET_Y_DOTS = 12;
+
+/** The eye-readable text of the widest DIN the ISBT 128 structure rules allow. */
+export const WIDEST_DIN_TEXT = "WWW99 99 999999";
 
 /**
- * Narrowest the eye-readable line can be and still hold everything it carries: the DIN, the
- * flag characters, and the boxed check character.
+ * Width of the widest possible DIN at the smallest font this app will use. Every DIN prints
+ * at this width or less, so a line that has room for it has room for any DIN.
  */
-const ROW_MIN_WIDTH_DOTS =
-  DIN_TEXT_WIDTH_DOTS + FLAGS_FONT_DOTS + FLAGS_TO_CHECK_BOX_GAP_DOTS + CHECK_BOX_SIZE_DOTS;
+export const DIN_TEXT_WIDTH_DOTS = dinTextWidthDots(WIDEST_DIN_TEXT, 30);
 
-/** Top of the eye-readable line. */
-const TEXT_TOP_DOTS = BARCODE_TOP_DOTS + BAR_HEIGHT_DOTS + BAR_TO_TEXT_GAP_DOTS;
-/** Top of the turned flag characters. */
-const FLAGS_TOP_DOTS = TEXT_TOP_DOTS - 2;
-/** Top edge of the box that holds the check character. */
-const CHECK_BOX_TOP_DOTS = TEXT_TOP_DOTS - 12;
+/**
+ * How the printer puts ink on the label. The ZD411t on this desk is a thermal transfer
+ * printer, so it needs a ribbon and prints faint when it is left in direct thermal mode.
+ */
+export type PrintMethod = "thermalTransfer" | "directThermal";
+
+/** Printer settings the app sends with every label. */
+export interface PrintSettings {
+  /** Thermal transfer uses a ribbon. Direct thermal marks heat-sensitive stock instead. */
+  printMethod: PrintMethod;
+  /** Absolute darkness, 0 to 30. Higher burns more, which darkens the bars and the text. */
+  darkness: number;
+  /** Print speed in whole inches per second, 2 to 6. Slower gives crisper bar edges. */
+  speedIps: number;
+}
+
+/** Smallest and largest darkness the `~SD` command takes. */
+export const DARKNESS_MIN = 0;
+export const DARKNESS_MAX = 30;
+
+/** Smallest and largest print speed the ZD411t takes, in whole inches per second. */
+export const SPEED_IPS_MIN = 2;
+export const SPEED_IPS_MAX = 6;
+
+/**
+ * What the app sends when the caller names no settings. The ZD411t prints faint on this label
+ * stock at its factory darkness, so the default asks for more heat and a slower pass.
+ */
+export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
+  printMethod: "thermalTransfer",
+  darkness: 16,
+  speedIps: 3,
+};
+
+/** ZPL media type letter for each print method. */
+const MEDIA_TYPE_LETTER: Record<PrintMethod, string> = {
+  thermalTransfer: "T",
+  directThermal: "D",
+};
 
 /** Largest copy count the app will send. A run longer than this is a mistake, not a request. */
 export const MAX_COPIES = 999;
@@ -156,6 +215,8 @@ export interface ReplicaLabel {
   copies: number;
   /** The two flag characters that follow the DIN inside the barcode. Defaults to `00`. */
   flags?: string;
+  /** How the printer should burn this label. Defaults to `DEFAULT_PRINT_SETTINGS`. */
+  printSettings?: PrintSettings;
 }
 
 /** What the printed barcode will measure, for the UI to show under the preview. */
@@ -283,14 +344,117 @@ export function replicaLabelGeometry(din: string, flags?: string): ReplicaLabelG
 }
 
 /**
+ * How wide the ink of `text` runs in ZPL font 0 at `fontHeightDots`.
+ *
+ * The figure is the sum of the character advances less the trailing side bearing of the last
+ * one. Checked against rendered text, it lands within a dot of the ink at every font height
+ * this app uses.
+ */
+export function dinTextWidthDots(text: string, fontHeightDots: number): number {
+  let ratio = 0;
+  for (const character of text) {
+    if (character === " ") {
+      ratio += SPACE_ADVANCE_RATIO;
+    } else {
+      ratio += GLYPH_ADVANCE_RATIO[character] ?? WIDEST_ADVANCE_RATIO;
+    }
+  }
+  return Math.ceil(ratio * fontHeightDots) - Math.round(TRAILING_BEARING_RATIO * fontHeightDots);
+}
+
+/** Height of a capital letter in ZPL font 0 at `fontHeightDots`. */
+export function capHeightDots(fontHeightDots: number): number {
+  return Math.round(CAP_HEIGHT_RATIO * fontHeightDots);
+}
+
+/**
+ * How far right of its `^FO` origin a rotated field's ink starts. A rotated field carries the
+ * side bearing that would sit above an upright one, so its origin is not where the ink begins.
+ */
+export function rotatedInkLeftOffsetDots(fontHeightDots: number): number {
+  return Math.round(ROTATED_INK_LEFT_RATIO * fontHeightDots);
+}
+
+/**
+ * Width of the whole eye-readable line at `fontHeightDots`: the DIN, a gap, the flag
+ * characters on their side, another gap, and the box around the check character.
+ */
+export function eyeReadableLineWidthDots(dinText: string, fontHeightDots: number): number {
+  return (
+    dinTextWidthDots(dinText, fontHeightDots) +
+    LINE_GAP_DOTS +
+    capHeightDots(fontHeightDots) +
+    LINE_GAP_DOTS +
+    CHECK_BOX_SIZE_DOTS
+  );
+}
+
+/**
+ * Picks the tallest font whose eye-readable line still starts at or right of the left margin.
+ *
+ * The line is right-aligned on the last bar, so the room it has is everything from the left
+ * margin to `lineRightDots`. Throws when even the smallest font on the list overflows that.
+ */
+export function chooseFontHeightDots(dinText: string, lineRightDots: number): number {
+  for (const fontHeightDots of FONT_HEIGHT_CHOICES_DOTS) {
+    const left = lineRightDots - eyeReadableLineWidthDots(dinText, fontHeightDots);
+    if (left >= LEFT_MARGIN_DOTS) {
+      return fontHeightDots;
+    }
+  }
+  throw new Error(
+    `The eye-readable line for "${dinText}" does not fit between ${LEFT_MARGIN_DOTS} and ` +
+      `${lineRightDots} dots at any font height`,
+  );
+}
+
+/**
+ * Checks print settings against the ranges the printer accepts, and throws outside them.
+ *
+ * The settings can come from a saved settings file, so a runtime check earns its keep even
+ * though TypeScript already narrows the print method.
+ */
+export function validatePrintSettings(settings: PrintSettings): void {
+  if (!(settings.printMethod in MEDIA_TYPE_LETTER)) {
+    throw new Error(
+      `Print method must be thermalTransfer or directThermal, not "${settings.printMethod}"`,
+    );
+  }
+  if (
+    !Number.isInteger(settings.darkness) ||
+    settings.darkness < DARKNESS_MIN ||
+    settings.darkness > DARKNESS_MAX
+  ) {
+    throw new Error(
+      `Darkness must be a whole number from ${DARKNESS_MIN} to ${DARKNESS_MAX}, not ${settings.darkness}`,
+    );
+  }
+  if (
+    !Number.isInteger(settings.speedIps) ||
+    settings.speedIps < SPEED_IPS_MIN ||
+    settings.speedIps > SPEED_IPS_MAX
+  ) {
+    throw new Error(
+      `Print speed must be a whole number of inches per second from ${SPEED_IPS_MIN} to ${SPEED_IPS_MAX}, not ${settings.speedIps}`,
+    );
+  }
+}
+
+/**
  * Builds the ZPL for one replica print run.
  *
  * The label carries a Code 128 barcode and one line of eye-readable text. Nothing else is
  * printed. Media darkness (`^MD`) is left alone so the printer keeps whatever the operator
  * set on it.
  *
+ * `~SD` sets the darkness for the printer's whole session, so it goes on its own line ahead of
+ * the format; the printer reads a tilde command outside `^XA` and `^XZ`. The print method and
+ * the speed belong to the label itself and sit inside the format. `^MD` is left alone so the
+ * two darkness commands cannot fight each other.
+ *
  * Throws when the DIN or the flag characters break the ISBT 128 structure rules, when the
- * copy count is not a whole number from 1 to 999, or when the barcode cannot fit the stock.
+ * copy count is not a whole number from 1 to 999, when a print setting is out of range, or
+ * when the barcode cannot fit the stock.
  */
 export function buildReplicaZpl(input: ReplicaLabel): string {
   if (!Number.isInteger(input.copies) || input.copies < 1 || input.copies > MAX_COPIES) {
@@ -299,40 +463,63 @@ export function buildReplicaZpl(input: ReplicaLabel): string {
     );
   }
 
+  const printSettings = input.printSettings ?? DEFAULT_PRINT_SETTINGS;
+  validatePrintSettings(printSettings);
+
   const payload = barcodePayload(input.din, input.flags);
   const text = eyeReadable(input.din, input.flags);
   const geometry = replicaLabelGeometry(input.din, input.flags);
 
   // The barcode is centred across the label, so its quiet zones come out equal.
   const symbolLeft = Math.round((LABEL_WIDTH_DOTS - geometry.symbolWidthDots) / 2);
+  const symbolRight = symbolLeft + geometry.symbolWidthDots;
+  const barsBottom = BARCODE_TOP_DOTS + BAR_HEIGHT_DOTS;
 
-  // The eye-readable line runs from the left end of the bars to the right end of them, which
-  // is where the source labels put it. A narrow symbol cannot hold the DIN, the flag
-  // characters, and the box, so the line widens on both sides until it can.
-  const rowWidth = Math.max(geometry.symbolWidthDots, ROW_MIN_WIDTH_DOTS);
-  const rowLeft = Math.round((LABEL_WIDTH_DOTS - rowWidth) / 2);
-  const rowRight = rowLeft + rowWidth;
+  // The eye-readable line is right-aligned on the last bar and packed tight, the way the
+  // source labels set it. A wide DIN or a narrow bar code leaves less room, so the font
+  // shrinks until the line reaches back no further than the left margin.
+  const fontHeight = chooseFontHeightDots(text.text, symbolRight);
+  const capHeight = capHeightDots(fontHeight);
 
-  // Everything in the line is placed from its right end, so the box sits under the last bar
-  // whenever the bars are the wider of the two.
-  const checkBoxLeft = rowRight - CHECK_BOX_SIZE_DOTS;
-  const flagsLeft = checkBoxLeft - FLAGS_TO_CHECK_BOX_GAP_DOTS - FLAGS_FONT_DOTS;
-  const dinTextBudget = flagsLeft - rowLeft;
+  // Right to left: the box sits under the last bar, the flag characters sit beside it, and
+  // the DIN fills what is left.
+  const checkBoxLeft = symbolRight - CHECK_BOX_SIZE_DOTS;
+  const flagsInkLeft = checkBoxLeft - LINE_GAP_DOTS - capHeight;
+  const dinLeft = flagsInkLeft - LINE_GAP_DOTS - dinTextWidthDots(text.text, fontHeight);
+  const flagsLeft = flagsInkLeft - rotatedInkLeftOffsetDots(fontHeight);
 
-  if (dinTextBudget < DIN_TEXT_WIDTH_DOTS) {
+  // The box, the DIN, and the flag characters all sit on one centre line under the bars.
+  const checkBoxTop = barsBottom + BAR_TO_LINE_GAP_DOTS;
+  const centreY = checkBoxTop + CHECK_BOX_SIZE_DOTS / 2;
+  const dinTop = Math.round(centreY - capHeight / 2) + UPRIGHT_INK_TOP_DOTS;
+  const flagsInkHeight = Math.round(ROTATED_INK_HEIGHT_RATIO * fontHeight);
+  const flagsTop = Math.round(centreY - flagsInkHeight / 2) - ROTATED_INK_TOP_DOTS;
+
+  if (dinLeft < LEFT_MARGIN_DOTS) {
     throw new Error(
-      `The eye-readable line gives the DIN ${dinTextBudget} dots, under the ` +
-        `${DIN_TEXT_WIDTH_DOTS} dots its widest form needs`,
+      `The eye-readable line starts at ${dinLeft} dots, left of the ` +
+        `${LEFT_MARGIN_DOTS} dot margin`,
     );
   }
-  if (rowLeft < 0 || rowRight > LABEL_WIDTH_DOTS) {
-    throw new Error(`The eye-readable line runs from ${rowLeft} to ${rowRight}, off the label`);
+  if (checkBoxTop + CHECK_BOX_SIZE_DOTS > LABEL_HEIGHT_DOTS) {
+    throw new Error(
+      `The eye-readable line ends at ${checkBoxTop + CHECK_BOX_SIZE_DOTS} dots, ` +
+        `below the ${LABEL_HEIGHT_DOTS} dot label`,
+    );
   }
 
   const lines = [
+    // ~SD is a control command, not part of a label format, and it holds for the session.
+    // It takes two digits, 00 to 30.
+    `~SD${String(printSettings.darkness).padStart(2, "0")}`,
+
     "^XA",
     // UTF-8 input, so label text means the same thing whatever the host sends.
     "^CI28",
+    // ^MTT for thermal transfer, ^MTD for direct thermal.
+    `^MT${MEDIA_TYPE_LETTER[printSettings.printMethod]}`,
+    // ^PR takes the print, slew, and backfeed speeds. They all move at the same rate here.
+    `^PR${printSettings.speedIps},${printSettings.speedIps},${printSettings.speedIps}`,
     `^PW${LABEL_WIDTH_DOTS}`,
     `^LL${LABEL_HEIGHT_DOTS}`,
 
@@ -342,19 +529,22 @@ export function buildReplicaZpl(input: ReplicaLabel): string {
     // digit, and mode N so the subsets come from the invocation codes in the field data.
     `^FO${symbolLeft},${BARCODE_TOP_DOTS}^BCN,${BAR_HEIGHT_DOTS},N,N,N,N^FD${buildBarcodeFieldData(payload)}^FS`,
 
-    // The DIN, in one sans serif scalable font at one size. ST-001 section 7.4.1 requires all
-    // 13 DIN characters to be printed, and lets the DIN sit anywhere under its bar code.
-    `^FO${rowLeft},${TEXT_TOP_DOTS}^A0N,${TEXT_HEIGHT_DOTS},${TEXT_HEIGHT_DOTS}^FD${text.text}^FS`,
+    // The DIN, in one font at one size. Font 0 on the ZD411t is CG Triumvirate Bold
+    // Condensed, so it prints bold without any further instruction. ST-001 section 7.4.1
+    // requires all 13 DIN characters to be printed and lets the DIN sit anywhere under its
+    // bar code.
+    `^FO${dinLeft},${dinTop}^A0N,${fontHeight},${fontHeight}^FD${text.text}^FS`,
 
     // The flag characters, turned a quarter turn clockwise. ST-001 section 7.4.1 asks for that
     // rotation so a reader can tell the flag characters apart from the DIN. `^A0R` is the ZPL
     // font orientation for 90 degrees clockwise.
-    `^FO${flagsLeft},${FLAGS_TOP_DOTS}^A0R,${FLAGS_FONT_DOTS},${FLAGS_FONT_DOTS}^FD${text.flags}^FS`,
+    `^FO${flagsLeft},${flagsTop}^A0R,${fontHeight},${fontHeight}^FD${text.flags}^FS`,
 
     // The check character in a box. ST-001 section 7.5 keeps the check character out of the
     // bar code, and section 7.5.1.1 requires a box drawn around it wherever it is printed.
-    `^FO${checkBoxLeft},${CHECK_BOX_TOP_DOTS}^GB${CHECK_BOX_SIZE_DOTS},${CHECK_BOX_SIZE_DOTS},${CHECK_BOX_THICKNESS_DOTS}^FS`,
-    `^FO${checkBoxLeft + CHECK_GLYPH_INSET_X_DOTS},${CHECK_BOX_TOP_DOTS + CHECK_GLYPH_INSET_Y_DOTS}^A0N,${TEXT_HEIGHT_DOTS},${TEXT_HEIGHT_DOTS}^FD${text.check}^FS`,
+    // `^FB` centres the character across the width of the box, whichever character it is.
+    `^FO${checkBoxLeft},${checkBoxTop}^GB${CHECK_BOX_SIZE_DOTS},${CHECK_BOX_SIZE_DOTS},${CHECK_BOX_THICKNESS_DOTS}^FS`,
+    `^FO${checkBoxLeft},${dinTop}^A0N,${fontHeight},${fontHeight}^FB${CHECK_BOX_SIZE_DOTS},1,0,C,0^FD${text.check}^FS`,
 
     `^PQ${input.copies}`,
     "^XZ",

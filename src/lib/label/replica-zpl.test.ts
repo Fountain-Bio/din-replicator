@@ -1,21 +1,34 @@
 import { describe, expect, it } from "vitest";
+import { eyeReadable } from "../isbt128";
 import {
   BAR_HEIGHT_DOTS,
   buildBarcodeFieldData,
   buildReplicaZpl,
+  capHeightDots,
+  chooseFontHeightDots,
   chooseModuleWidthDots,
   countSymbolModules,
+  DARKNESS_MAX,
+  DARKNESS_MIN,
+  DEFAULT_PRINT_SETTINGS,
   DIN_TEXT_WIDTH_DOTS,
+  dinTextWidthDots,
   DOTS_PER_INCH,
   DOTS_PER_MM,
+  eyeReadableLineWidthDots,
+  FONT_HEIGHT_CHOICES_DOTS,
   LABEL_HEIGHT_DOTS,
   LABEL_WIDTH_DOTS,
+  LEFT_MARGIN_DOTS,
   MAX_COPIES,
   MODULE_WIDTH_CHOICES_DOTS,
   QUIET_ZONE_MIN_MODULES,
   replicaLabelGeometry,
+  rotatedInkLeftOffsetDots,
+  SPEED_IPS_MAX,
+  SPEED_IPS_MIN,
   splitPayloadIntoSubsets,
-  TEXT_HEIGHT_DOTS,
+  WIDEST_DIN_TEXT,
 } from "./replica-zpl";
 
 /** Converts a count of dots at 300 dpi to millimetres. */
@@ -29,6 +42,7 @@ const ONE_LETTER_FIN = "W483626000011";
 const TWO_LETTER_FIN = "AB12326000011";
 /** A DIN whose FIN starts with three letters. Its K is Y. */
 const THREE_LETTER_FIN = "ABC1226000011";
+const EVERY_FIN_SHAPE = [ONE_LETTER_FIN, TWO_LETTER_FIN, THREE_LETTER_FIN];
 
 /** Reads the `^FO` x coordinate of the one line of `zpl` that holds `marker`. */
 function fieldOriginX(zpl: string, marker: string): number {
@@ -37,6 +51,11 @@ function fieldOriginX(zpl: string, marker: string): number {
   const match = /\^FO(\d+),/.exec(line!);
   expect(match, `no ^FO on the line holding ${marker}`).not.toBeNull();
   return Number(match![1]);
+}
+
+/** Reads the font height the eye-readable line was set in. */
+function fontHeight(zpl: string): number {
+  return Number(/\^A0N,(\d+),/.exec(zpl)![1]);
 }
 
 describe("buildBarcodeFieldData", () => {
@@ -137,7 +156,7 @@ describe("replicaLabelGeometry", () => {
   });
 
   it("leaves at least 10 modules of quiet zone on each side", () => {
-    for (const din of [ONE_LETTER_FIN, TWO_LETTER_FIN, THREE_LETTER_FIN]) {
+    for (const din of EVERY_FIN_SHAPE) {
       const geometry = replicaLabelGeometry(din);
       expect(geometry.quietZoneDots).toBeGreaterThanOrEqual(
         QUIET_ZONE_MIN_MODULES * geometry.moduleDots,
@@ -162,15 +181,84 @@ describe("label geometry", () => {
   });
 
   it("prints bars taller than the ST-001 section 6.1.3 minimum", () => {
-    for (const din of [ONE_LETTER_FIN, TWO_LETTER_FIN]) {
+    expect(BAR_HEIGHT_DOTS).toBe(110);
+    expect(millimetres(BAR_HEIGHT_DOTS)).toBeCloseTo(9.3, 1);
+    for (const din of EVERY_FIN_SHAPE) {
       const symbolLengthMm = replicaLabelGeometry(din).symbolWidthMm;
       expect(millimetres(BAR_HEIGHT_DOTS)).toBeGreaterThanOrEqual(5);
       expect(millimetres(BAR_HEIGHT_DOTS)).toBeGreaterThanOrEqual(0.15 * symbolLengthMm);
     }
   });
 
-  it("keeps the eye-readable text near 2.5 mm", () => {
-    expect(millimetres(TEXT_HEIGHT_DOTS)).toBeCloseTo(2.5, 1);
+  it("stands the bars about three times the cap height of the text", () => {
+    for (const din of EVERY_FIN_SHAPE) {
+      const capHeight = capHeightDots(fontHeight(buildReplicaZpl({ din, copies: 1 })));
+      expect(BAR_HEIGHT_DOTS / capHeight).toBeGreaterThan(2.5);
+      expect(BAR_HEIGHT_DOTS / capHeight).toBeLessThan(4);
+    }
+  });
+});
+
+describe("dinTextWidthDots", () => {
+  it("matches the width the renderer draws to within a dot", () => {
+    // Measured from rendered text: 214 dots ink at font height 30, 358 at 50.
+    expect(dinTextWidthDots("W4836 26 000011", 30)).toBeCloseTo(214, -0.5);
+    expect(dinTextWidthDots("W4836 26 000011", 50)).toBeCloseTo(358, -0.5);
+    expect(Math.abs(dinTextWidthDots("W4836 26 000011", 30) - 214)).toBeLessThanOrEqual(1);
+    expect(Math.abs(dinTextWidthDots("W4836 26 000011", 50) - 358)).toBeLessThanOrEqual(1);
+  });
+
+  it("grows with the font height", () => {
+    const text = "W4836 26 000011";
+    for (let i = 1; i < FONT_HEIGHT_CHOICES_DOTS.length; i += 1) {
+      expect(dinTextWidthDots(text, FONT_HEIGHT_CHOICES_DOTS[i - 1]!)).toBeGreaterThan(
+        dinTextWidthDots(text, FONT_HEIGHT_CHOICES_DOTS[i]!),
+      );
+    }
+  });
+
+  it("treats an unlisted character as the widest one", () => {
+    // `W` is the widest character font 0 draws, so nothing can measure wider per character.
+    expect(dinTextWidthDots("@@@", 30)).toBe(dinTextWidthDots("WWW", 30));
+  });
+});
+
+describe("the widest DIN the structure rules allow", () => {
+  it("is three wide letters and ten digits", () => {
+    expect(WIDEST_DIN_TEXT).toBe("WWW99 99 999999");
+    // Any real DIN text is 13 characters and two spaces, and none is wider than this one.
+    for (const din of EVERY_FIN_SHAPE) {
+      const text = eyeReadable(din).text;
+      expect(text).toHaveLength(WIDEST_DIN_TEXT.length);
+      expect(dinTextWidthDots(text, 30)).toBeLessThanOrEqual(DIN_TEXT_WIDTH_DOTS);
+    }
+  });
+
+  it("still fits on the narrowest bar code this app prints", () => {
+    // 156 modules at 2 dots leaves the smallest right edge any label gets.
+    const geometry = replicaLabelGeometry(TWO_LETTER_FIN);
+    const lineRight = geometry.quietZoneDots + geometry.symbolWidthDots;
+    expect(chooseFontHeightDots(WIDEST_DIN_TEXT, lineRight)).toBeGreaterThanOrEqual(30);
+    expect(eyeReadableLineWidthDots(WIDEST_DIN_TEXT, 30)).toBeLessThanOrEqual(
+      lineRight - LEFT_MARGIN_DOTS,
+    );
+  });
+});
+
+describe("chooseFontHeightDots", () => {
+  it("takes the tallest font whose line still clears the left margin", () => {
+    expect(FONT_HEIGHT_CHOICES_DOTS).toEqual([50, 46, 42, 38, 34, 30]);
+    expect(chooseFontHeightDots("W4836 26 000011", 480)).toBe(46);
+    expect(chooseFontHeightDots("AB123 26 000011", 419)).toBe(42);
+  });
+
+  it("shrinks the font as the line loses room", () => {
+    const text = "W4836 26 000011";
+    expect(chooseFontHeightDots(text, 480)).toBeGreaterThan(chooseFontHeightDots(text, 400));
+  });
+
+  it("throws when the line does not fit at any font height", () => {
+    expect(() => chooseFontHeightDots(WIDEST_DIN_TEXT, 200)).toThrow(/does not fit/);
   });
 });
 
@@ -192,19 +280,25 @@ describe("buildReplicaZpl", () => {
   });
 
   it("emits the barcode in mode N with the subset invocation codes", () => {
-    expect(zpl).toContain("^BCN,90,N,N,N,N^FD>:=W>548362600001100^FS");
+    expect(zpl).toContain("^BCN,110,N,N,N,N^FD>:=W>548362600001100^FS");
   });
 
   it("centres the barcode across the label", () => {
-    expect(zpl).toContain("^FO45,36^BCN");
+    expect(zpl).toContain("^FO45,20^BCN");
   });
 
   it("prints the DIN, the flag characters, and the boxed check character", () => {
-    expect(zpl).toContain("^A0N,30,30^FDW4836 26 000011^FS");
+    expect(zpl).toContain("^A0N,46,46^FDW4836 26 000011^FS");
     // ^A0R turns the flag characters 90 degrees clockwise, per ST-001 section 7.4.1.
-    expect(zpl).toContain("^A0R,26,26^FD00^FS");
-    expect(zpl).toContain("^GB44,44,3^FS");
-    expect(zpl).toContain("^A0N,30,30^FDN^FS");
+    expect(zpl).toContain("^A0R,46,46^FD00^FS");
+    // ST-001 section 7.5.1.1 requires the box, and ^FB centres the character inside it.
+    expect(zpl).toContain("^GB56,56,3^FS");
+    expect(zpl).toContain("^A0N,46,46^FB56,1,0,C,0^FDN^FS");
+  });
+
+  it("sets the DIN and the flag characters in one font at one size", () => {
+    const sizes = [...zpl.matchAll(/\^A0[NR],(\d+),(\d+)/g)].map((m) => `${m[1]}x${m[2]}`);
+    expect(new Set(sizes)).toEqual(new Set(["46x46"]));
   });
 
   it("keeps the check character out of the barcode", () => {
@@ -218,9 +312,11 @@ describe("buildReplicaZpl", () => {
     expect(zpl).not.toContain("^MD");
   });
 
-  it("opens and closes one label format", () => {
-    expect(zpl.startsWith("^XA")).toBe(true);
-    expect(zpl.trimEnd().endsWith("^XZ")).toBe(true);
+  it("opens and closes one label format after the session commands", () => {
+    const lines = zpl.trimEnd().split("\n");
+    expect(lines.filter((line) => line.startsWith("^XA"))).toHaveLength(1);
+    expect(lines[lines.indexOf("^XA") - 1]).toMatch(/^~SD\d\d$/);
+    expect(lines[lines.length - 1]).toBe("^XZ");
   });
 
   it("prints nothing but the barcode and the eye-readable line", () => {
@@ -239,7 +335,7 @@ describe("buildReplicaZpl", () => {
   it("uses the flag characters it was given", () => {
     const flagged = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1, flags: "07" });
     expect(flagged).toContain("^FD>:=W>548362600001107^FS");
-    expect(flagged).toContain("^A0R,26,26^FD07^FS");
+    expect(flagged).toContain("^A0R,46,46^FD07^FS");
   });
 
   it("rejects a DIN that breaks the structure rules", () => {
@@ -266,39 +362,129 @@ describe("copy count", () => {
   });
 });
 
-describe("eye-readable line width", () => {
-  // Font 0 is proportional, so the printed DIN is only as wide as its own characters. The
-  // layout reserves room for the widest DIN that can exist instead: 13 glyphs at the widest
-  // advance font 0 reaches at a 30 dot height, plus the two spaces in the text.
-  const ESTIMATED_MAX_GLYPH_DOTS = 24;
-  const ESTIMATED_SPACE_DOTS = 7;
-  const worstCaseTextDots = 13 * ESTIMATED_MAX_GLYPH_DOTS + 2 * ESTIMATED_SPACE_DOTS;
-
-  it("reserves at least the widest DIN's width for the DIN", () => {
-    expect(DIN_TEXT_WIDTH_DOTS).toBeGreaterThanOrEqual(worstCaseTextDots);
+describe("the eye-readable line", () => {
+  it("ends the box on the right end of the bars", () => {
+    for (const din of EVERY_FIN_SHAPE) {
+      const zpl = buildReplicaZpl({ din, copies: 1 });
+      const geometry = replicaLabelGeometry(din);
+      const barcodeLeft = fieldOriginX(zpl, "^BCN");
+      expect(fieldOriginX(zpl, "^GB56,56,3") + 56).toBe(barcodeLeft + geometry.symbolWidthDots);
+    }
   });
 
-  it("keeps the flag characters clear of the widest DIN, whatever the module width", () => {
-    for (const din of [ONE_LETTER_FIN, TWO_LETTER_FIN, THREE_LETTER_FIN]) {
+  it("starts no further left than the margin", () => {
+    for (const din of EVERY_FIN_SHAPE) {
       const zpl = buildReplicaZpl({ din, copies: 1 });
-      const textLeft = fieldOriginX(zpl, "^A0N,30,30^FD" + din.slice(0, 3));
+      expect(fieldOriginX(zpl, "^A0N," + fontHeight(zpl) + ",")).toBeGreaterThanOrEqual(
+        LEFT_MARGIN_DOTS,
+      );
+    }
+  });
+
+  it("packs the DIN, the flag characters, and the box in that order without overlap", () => {
+    for (const din of EVERY_FIN_SHAPE) {
+      const zpl = buildReplicaZpl({ din, copies: 1 });
+      const height = fontHeight(zpl);
+      const dinLeft = fieldOriginX(zpl, "^FD" + eyeReadable(din).text);
       const flagsLeft = fieldOriginX(zpl, "^A0R,");
-      expect(flagsLeft - textLeft).toBeGreaterThanOrEqual(worstCaseTextDots);
+      const boxLeft = fieldOriginX(zpl, "^GB56,56,3");
+
+      const dinRight = dinLeft + dinTextWidthDots(eyeReadable(din).text, height);
+      const flagsInkLeft = flagsLeft + rotatedInkLeftOffsetDots(height);
+      expect(dinRight).toBeLessThan(flagsInkLeft);
+      expect(flagsInkLeft + capHeightDots(height)).toBeLessThanOrEqual(boxLeft);
+      // Packed: the DIN and the flag characters sit a few dots apart, not spread out.
+      expect(flagsInkLeft - dinRight).toBeLessThanOrEqual(12);
     }
   });
 
-  it("keeps the whole eye-readable line inside the label", () => {
-    for (const din of [ONE_LETTER_FIN, TWO_LETTER_FIN, THREE_LETTER_FIN]) {
+  it("fits the whole label from the top margin to the bottom edge", () => {
+    for (const din of EVERY_FIN_SHAPE) {
       const zpl = buildReplicaZpl({ din, copies: 1 });
-      expect(fieldOriginX(zpl, "^A0N,30,30^FD" + din.slice(0, 3))).toBeGreaterThanOrEqual(0);
-      expect(fieldOriginX(zpl, "^GB44,44,3") + 44).toBeLessThanOrEqual(LABEL_WIDTH_DOTS);
+      const boxLine = zpl.split("\n").find((line) => line.includes("^GB"))!;
+      const boxTop = Number(/\^FO\d+,(\d+)/.exec(boxLine)![1]);
+      const barcodeTop = Number(/\^FO\d+,(\d+)\^BCN/.exec(zpl)![1]);
+      expect(barcodeTop).toBe(20);
+      // ST-001 section 6.1.3: nothing prints in contact with the top or bottom of the bars.
+      expect(boxTop).toBeGreaterThan(barcodeTop + BAR_HEIGHT_DOTS);
+      expect(boxTop + 56).toBeLessThanOrEqual(LABEL_HEIGHT_DOTS);
+    }
+  });
+});
+
+describe("print settings", () => {
+  it("defaults to thermal transfer, darkness 16, and 3 inches per second", () => {
+    expect(DEFAULT_PRINT_SETTINGS).toEqual({
+      printMethod: "thermalTransfer",
+      darkness: 16,
+      speedIps: 3,
+    });
+    const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1 });
+    expect(zpl.split("\n").slice(0, 5)).toEqual(["~SD16", "^XA", "^CI28", "^MTT", "^PR3,3,3"]);
+  });
+
+  it("switches the media type for direct thermal", () => {
+    const zpl = buildReplicaZpl({
+      din: ONE_LETTER_FIN,
+      copies: 1,
+      printSettings: { printMethod: "directThermal", darkness: 8, speedIps: 6 },
+    });
+    expect(zpl.split("\n").slice(0, 5)).toEqual(["~SD08", "^XA", "^CI28", "^MTD", "^PR6,6,6"]);
+  });
+
+  it("keeps ~SD outside the label format, where the printer expects a control command", () => {
+    const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1 });
+    const body = zpl.slice(zpl.indexOf("^XA"));
+    expect(body).not.toContain("~SD");
+    // ^MD would be added to ~SD, so the label leaves it alone.
+    expect(zpl).not.toContain("^MD");
+  });
+
+  it("pads the darkness to the two digits ~SD takes", () => {
+    for (const darkness of [DARKNESS_MIN, 5, DARKNESS_MAX]) {
+      const zpl = buildReplicaZpl({
+        din: ONE_LETTER_FIN,
+        copies: 1,
+        printSettings: { ...DEFAULT_PRINT_SETTINGS, darkness },
+      });
+      expect(zpl.split("\n")[0]).toBe(`~SD${String(darkness).padStart(2, "0")}`);
     }
   });
 
-  it("puts the box under the last bar when the bars are the wider of the two", () => {
-    const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1 });
-    const geometry = replicaLabelGeometry(ONE_LETTER_FIN);
-    const barcodeLeft = fieldOriginX(zpl, "^BCN");
-    expect(fieldOriginX(zpl, "^GB44,44,3") + 44).toBe(barcodeLeft + geometry.symbolWidthDots);
+  it("rejects a darkness outside 0 to 30", () => {
+    for (const darkness of [-1, 31, 16.5, Number.NaN]) {
+      expect(() =>
+        buildReplicaZpl({
+          din: ONE_LETTER_FIN,
+          copies: 1,
+          printSettings: { ...DEFAULT_PRINT_SETTINGS, darkness },
+        }),
+      ).toThrow(/Darkness/);
+    }
+  });
+
+  it("rejects a speed outside 2 to 6 inches per second", () => {
+    for (const speedIps of [SPEED_IPS_MIN - 1, SPEED_IPS_MAX + 1, 3.5, Number.NaN]) {
+      expect(() =>
+        buildReplicaZpl({
+          din: ONE_LETTER_FIN,
+          copies: 1,
+          printSettings: { ...DEFAULT_PRINT_SETTINGS, speedIps },
+        }),
+      ).toThrow(/Print speed/);
+    }
+  });
+
+  it("rejects a print method the printer does not have", () => {
+    expect(() =>
+      buildReplicaZpl({
+        din: ONE_LETTER_FIN,
+        copies: 1,
+        printSettings: {
+          ...DEFAULT_PRINT_SETTINGS,
+          printMethod: "inkjet" as unknown as typeof DEFAULT_PRINT_SETTINGS.printMethod,
+        },
+      }),
+    ).toThrow(/Print method/);
   });
 });

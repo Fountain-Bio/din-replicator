@@ -56,11 +56,12 @@ for (const { name, din } of SAMPLES) {
   await writeFile(new URL(`${name}.png`, OUT_DIR), png);
 
   const geometry = replicaLabelGeometry(din);
+  const fontHeight = /\^A0N,(\d+),/.exec(zpl)?.[1] ?? "?";
   console.log(`out/${name}.png  DIN ${din}  K ${checkCharacter(din)}`);
   console.log(
     `  ${geometry.symbolModules} modules at ${geometry.moduleDots} dots = ` +
       `${geometry.symbolWidthDots} dots (${geometry.symbolWidthMm.toFixed(1)} mm), ` +
-      `quiet zone ${geometry.quietZoneDots} dots`,
+      `quiet zone ${geometry.quietZoneDots} dots, text at ${fontHeight} dots`,
   );
 }
 
