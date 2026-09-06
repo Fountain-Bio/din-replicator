@@ -27,5 +27,5 @@ Read `CONTEXT.md` before writing code or prose. Use its terms exactly, including
 - Prose (comments, docs, commit messages) is plain English: short sentences, active voice, no rhetorical patterning, no em dashes.
 - Commits are atomic: one logical change, tests passing, described in one sentence.
 - Never use a dependency version from memory. Check the registry.
-- This project is open source. No company name, person name, or internal system detail appears in code, comments, tests, strings, paths, or docs. The bundle identifier is `org.dinreplicator.app`.
+- This project is open source. No company name, person name, or internal system detail appears in code, comments, tests, strings, paths, or docs. The bundle identifier is `org.dinreplicator.desktop`.
 - Platform-specific code lives in a directory named for the platform: `macos/` or `windows/`. Shared code never sits beside platform code in the same file.
