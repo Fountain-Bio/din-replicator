@@ -52,26 +52,18 @@ on:
 
 jobs:
   macos:
-    name: macOS (${{ matrix.label }})
+    name: macOS (Apple silicon)
     # tauri-action creates the draft release with GITHUB_TOKEN, which needs write access to
     # the repository contents.
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: Apple silicon
-            target: aarch64-apple-darwin
-          - label: Intel
-            target: x86_64-apple-darwin
     runs-on: blacksmith-6vcpu-macos-latest
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2.2.0
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           workspaces: src-tauri
@@ -151,7 +143,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: DIN Replicator ${{ github.ref_name }}
           releaseDraft: true
-          args: --target ${{ matrix.target }}
+          args: --target aarch64-apple-darwin
 
   windows:
     name: Windows

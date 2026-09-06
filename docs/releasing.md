@@ -21,7 +21,6 @@ The `release` workflow builds three artifacts:
 | Artifact                                 | Platform               | Runner                          |
 | ---------------------------------------- | ---------------------- | ------------------------------- |
 | `DIN Replicator_<version>_aarch64.dmg`   | macOS on Apple silicon | `blacksmith-6vcpu-macos-latest` |
-| `DIN Replicator_<version>_x64.dmg`       | macOS on Intel         | `blacksmith-6vcpu-macos-latest` |
 | `DIN Replicator_<version>_x64-setup.exe` | Windows                | `blacksmith-4vcpu-windows-2025` |
 
 The Windows installer is an NSIS per-machine installer, so it installs for everyone on the
