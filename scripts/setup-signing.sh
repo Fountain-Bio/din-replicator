@@ -272,6 +272,28 @@ developer_id_identities() {
 
 banner "DIN Replicator release signing"
 
+# Secrets already on the repository are the wizard's memory. A half that is
+# fully stored is skipped, so a re-run only asks for what is missing.
+stored_secrets=$(gh secret list 2>/dev/null | awk '{print $1}' || true)
+has_every_secret() {
+  for name in "$@"; do
+    printf '%s\n' "$stored_secrets" | grep -qx "$name" || return 1
+  done
+  return 0
+}
+if [[ "$DO_APPLE" == true ]] && has_every_secret APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+    KEYCHAIN_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; then
+  printf '  %s✓ the six macOS secrets are already stored%s, skipping the Apple stages\n' "$GREEN" "$RESET"
+  DO_APPLE=false
+  APPLE_SECRETS_STORED=true
+fi
+if [[ "$DO_AZURE" == true ]] && has_every_secret AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET \
+    AZURE_ARTIFACT_SIGNING_ENDPOINT AZURE_ARTIFACT_SIGNING_ACCOUNT \
+    AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE; then
+  printf '  %s✓ the six Windows secrets are already stored%s, skipping the Azure stages\n' "$GREEN" "$RESET"
+  DO_AZURE=false
+fi
+
 # ── Stage 1 ───────────────────────────────────────────────────────────────
 stage "Apple: the Developer ID Application certificate"
 APPLE_IDENTITY=""
@@ -798,7 +820,9 @@ if [[ "$DO_AZURE" == true ]]; then
   set_secret AZURE_ARTIFACT_SIGNING_ENDPOINT "$AZURE_ARTIFACT_SIGNING_ENDPOINT"
   set_secret AZURE_ARTIFACT_SIGNING_ACCOUNT "$AZURE_ARTIFACT_SIGNING_ACCOUNT"
   set_secret AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE "$AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE"
-else
+elif ! has_every_secret AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET \
+    AZURE_ARTIFACT_SIGNING_ENDPOINT AZURE_ARTIFACT_SIGNING_ACCOUNT \
+    AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE; then
   SKIPPED+=("the six Windows secrets, so Windows builds stay unsigned")
 fi
 
