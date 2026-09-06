@@ -30,12 +30,12 @@ it works on a machine with no internet access and no WebView2 runtime.
 
 The same jobs also produce the files an already installed app downloads when it updates itself:
 
-| Artifact                                     | What it is                                             |
-| -------------------------------------------- | ------------------------------------------------------ |
-| `DIN Replicator.app.tar.gz`                  | The macOS app, compressed. This is the macOS update.   |
-| `DIN Replicator.app.tar.gz.sig`              | Signature of the macOS update.                         |
+| Artifact                                     | What it is                                                       |
+| -------------------------------------------- | ---------------------------------------------------------------- |
+| `DIN Replicator.app.tar.gz`                  | The macOS app, compressed. This is the macOS update.             |
+| `DIN Replicator.app.tar.gz.sig`              | Signature of the macOS update.                                   |
 | `DIN Replicator_<version>_x64-setup.exe.sig` | Signature of the Windows installer, which is the Windows update. |
-| `latest.json`                                | Names the update and the signature for each platform.  |
+| `latest.json`                                | Names the update and the signature for each platform.            |
 
 GitHub replaces every space in a file name with a dot when it stores the file as a release
 asset, so the assets read `DIN.Replicator.app.tar.gz` and so on. `latest.json` is built from
@@ -94,10 +94,10 @@ bun run tauri signer generate -w ~/.tauri/din-replicator.key
 
 That command asks for a password and writes two files:
 
-| Path                              | What it is                                             |
-| --------------------------------- | ------------------------------------------------------ |
-| `~/.tauri/din-replicator.key`     | The private key. It signs every update.                |
-| `~/.tauri/din-replicator.key.pub` | The public key, copied into `plugins.updater.pubkey`.  |
+| Path                              | What it is                                            |
+| --------------------------------- | ----------------------------------------------------- |
+| `~/.tauri/din-replicator.key`     | The private key. It signs every update.               |
+| `~/.tauri/din-replicator.key.pub` | The public key, copied into `plugins.updater.pubkey`. |
 
 The password is not written anywhere by the command. This repository's key was set up with the
 password saved beside the key in `~/.tauri/din-replicator.key.password`, readable only by its
