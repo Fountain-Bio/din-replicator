@@ -97,6 +97,12 @@ function isPrintable(key: string): boolean {
   return key.length === 1;
 }
 
+/**
+ * Key names the browser reports for modifier presses. A keyboard-wedge scanner
+ * emits these between characters, so the detector ignores them.
+ */
+const MODIFIER_KEYS = ["Shift", "Control", "Alt", "Meta", "CapsLock", "AltGraph", "Dead"];
+
 /** True when what has been collected is long enough and fast enough to be a scan. */
 function isScannable(state: BurstState): boolean {
   return state.atScannerSpeed && state.buffer.length >= MIN_BURST_LENGTH;
@@ -129,6 +135,14 @@ export function stepBurst(
       state: EMPTY_BURST,
       outcome: isScan ? { kind: "scan", scan: state.buffer, consumedKey: true } : { kind: "loose" },
     };
+  }
+
+  // A scanner acting as a keyboard presses Shift before every capital letter
+  // and some symbols, and the operating system reports that press as its own
+  // key event. Modifier presses carry no character and say nothing about the
+  // burst, so they leave it exactly as it was.
+  if (MODIFIER_KEYS.includes(key.key)) {
+    return { state, outcome: { kind: "collecting" } };
   }
 
   if (!isPrintable(key.key)) {

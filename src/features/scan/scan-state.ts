@@ -229,7 +229,14 @@ function reduceSourceScan(state: ScanState, raw: string): ScanState {
   const result = parseScan(raw);
 
   if (result.kind === "not-din") {
-    return { ...state, notice: { tone: "error", text: notDinMessage(result.reason) } };
+    // Naming what arrived lets an operator tell a bad label from a scanner
+    // that is not sending what the app expects.
+    const shown = raw.trim().slice(0, 40);
+    const text =
+      shown === ""
+        ? notDinMessage(result.reason)
+        : `${notDinMessage(result.reason)} The scan read "${shown}".`;
+    return { ...state, notice: { tone: "error", text } };
   }
 
   // The legacy 15-character form carries a check character, so the app can

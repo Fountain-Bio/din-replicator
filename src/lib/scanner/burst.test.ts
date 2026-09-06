@@ -54,6 +54,24 @@ describe("stepBurst", () => {
     expect(ended.state).toEqual(EMPTY_BURST);
   });
 
+  it("keeps the burst when Shift presses arrive between characters", () => {
+    // A wedge scanner presses Shift before every capital letter, and the
+    // browser reports that press as a key event of its own.
+    let state = EMPTY_BURST;
+    let at = 1000;
+    for (const character of PAYLOAD) {
+      if (character !== character.toLowerCase()) {
+        state = stepBurst(state, { key: "Shift", at }).state;
+        at += 2;
+      }
+      state = stepBurst(state, { key: character, at }).state;
+      at += SCANNER_GAP_MS;
+    }
+    const ended = stepBurst(state, { key: "Enter", at });
+
+    expect(ended.outcome).toEqual({ kind: "scan", scan: PAYLOAD, consumedKey: true });
+  });
+
   it("ignores the same characters typed at human speed", () => {
     const typed = type(PAYLOAD, 120);
     const ended = stepBurst(typed.state, { key: "Enter", at: typed.state.lastKeyAt + 120 });
