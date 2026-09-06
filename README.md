@@ -44,7 +44,7 @@ The app is built with Tauri v2. The interface is React with Tailwind and shadcn.
 ```
 bun install
 bun run tauri dev      # run the app
-bun test               # TypeScript tests
+bun run test           # TypeScript tests with vitest
 bun run check          # typecheck, lint, format check
 bun run preview:label  # render the replica label to out/label.png
 cd src-tauri && cargo test

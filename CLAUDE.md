@@ -15,7 +15,7 @@ Read `CONTEXT.md` before writing code or prose. Use its terms exactly, including
 ## Commands
 
 - `bun install` then `bun run tauri dev` runs the app.
-- `bun test` runs vitest for `src/`. `cargo test` inside `src-tauri/` runs Rust tests.
+- `bun run test` runs vitest for `src/`. `cargo test` inside `src-tauri/` runs Rust tests.
 - `bun run check` runs typecheck, oxlint, and oxfmt --check. Run it before every commit.
 - `bun run preview:label` renders the replica label ZPL to `out/label.png` with zebrash for visual review.
 
