@@ -147,6 +147,24 @@ jobs:
         with:
           args: --target aarch64-apple-darwin
 
+      # The bundler notarizes and staples the .app inside the image. The disk image itself is
+      # only signed, and Gatekeeper judges the image when it is opened, so it is notarized and
+      # stapled here as well. https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution
+      - name: Notarize and staple the DMG
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -eu
+          for dmg in src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg; do
+            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" --wait
+            xcrun stapler staple "$dmg"
+            spctl --assess --type open --context context:primary-signature -v "$dmg"
+          done
+
       - name: Attach the DMG to the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

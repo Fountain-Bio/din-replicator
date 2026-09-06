@@ -234,3 +234,5 @@ Windows SDK, so the Windows installer is only ever signed on the Windows runner.
 - The build action: <https://github.com/tauri-apps/tauri-action>
 - Azure Artifact Signing setup: <https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart>
 - Azure Artifact Signing roles: <https://learn.microsoft.com/en-us/azure/artifact-signing/tutorial-assign-roles>
+
+The workflow notarizes and staples the disk image as well as the app inside it, so `spctl --assess --type open --context context:primary-signature -v <dmg>` reports `Notarized Developer ID` for a release DMG.
