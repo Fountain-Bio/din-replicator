@@ -5,6 +5,15 @@
  * two in step: a field renamed in Rust has to be renamed here as well.
  */
 
+import type { LabelFont } from "@/lib/label/fonts";
+
+/**
+ * Which font the eye-readable line on a replica is printed in. The label
+ * module owns the list, because it is what holds the fonts and builds the ZPL
+ * that uses them. Rust names the same three values.
+ */
+export type { LabelFont };
+
 /** What the printer reports about itself right now. */
 export type PrinterState =
   /** The printer takes jobs and reports no fault. */
@@ -150,6 +159,19 @@ export interface Settings {
   darkness: number;
   /** How fast the label leaves the printer, in inches per second, from 2 to 6. */
   speedIps: number;
+  /** Which font the eye-readable line on a replica is printed in. */
+  labelFont: LabelFont;
+  /**
+   * How far down the label the printed content is moved, in dots at 300 dpi,
+   * from -100 to 100. Negative moves it up. This corrects a roll that sits a
+   * little high or low in the printer.
+   */
+  verticalOffsetDots: number;
+  /**
+   * How far right along the label the printed content is moved, in dots at
+   * 300 dpi, from -100 to 100. Negative moves it left.
+   */
+  horizontalOffsetDots: number;
 }
 
 /** Where the print log lives on this machine, or why there is none. */

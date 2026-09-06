@@ -22,6 +22,9 @@ const MAX_COPIES: &str = "max_copies";
 const PRINT_METHOD: &str = "print_method";
 const DARKNESS: &str = "darkness";
 const SPEED_IPS: &str = "speed_ips";
+const LABEL_FONT: &str = "label_font";
+const VERTICAL_OFFSET_DOTS: &str = "vertical_offset_dots";
+const HORIZONTAL_OFFSET_DOTS: &str = "horizontal_offset_dots";
 
 /// Ask the operator to scan a replica after every print run unless they turn
 /// it off. Verification is the point of the app, so it starts on.
@@ -60,6 +63,16 @@ const DEFAULT_SPEED_IPS: u8 = 3;
 /// The print speeds the printer accepts, in inches per second.
 const SPEED_IPS_RANGE: RangeInclusive<u8> = 2..=6;
 
+/// How far the printed content is moved on the label stock, in dots at 300
+/// dpi. Zero prints where the label format puts the content, which is right
+/// for a printer whose media sensor is calibrated.
+///
+/// The range is narrower than the printer accepts. A hundred dots is a third
+/// of an inch, which is more than any correctly loaded roll is out by, and a
+/// larger shift would push the bar code off the label.
+const DEFAULT_OFFSET_DOTS: i16 = 0;
+const OFFSET_DOTS_RANGE: RangeInclusive<i16> = -100..=100;
+
 /// How the printer makes its mark on the label stock.
 ///
 /// The two ways need different stock and different printer settings, so the
@@ -97,6 +110,48 @@ impl PrintMethod {
     }
 }
 
+/// Which font the eye-readable line on a replica is printed in.
+///
+/// The printer's own font is what the source labels are set in. The other two
+/// travel to the printer with each label, and the app decides what they are;
+/// `src/lib/label/fonts.ts` holds them and names the same three values.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LabelFont {
+    /// The printer's built-in scalable font, which is how this app has always
+    /// printed and what an operator comparing a replica to its source sees.
+    #[default]
+    Printer,
+    /// A bundled sans serif face.
+    Sans,
+    /// A bundled monospaced sans serif face, where every character is the same
+    /// width so a DIN lines up column by column.
+    Mono,
+}
+
+impl LabelFont {
+    /// The text stored in the settings table, and the same word the UI reads
+    /// on the wire, so the row says plainly which font is chosen.
+    fn stored(self) -> &'static str {
+        match self {
+            Self::Printer => "printer",
+            Self::Sans => "sans",
+            Self::Mono => "mono",
+        }
+    }
+
+    /// Reads back what [`LabelFont::stored`] wrote. Anything else gives None,
+    /// and the caller falls back to the default.
+    fn from_stored(value: &str) -> Option<Self> {
+        match value {
+            "printer" => Some(Self::Printer),
+            "sans" => Some(Self::Sans),
+            "mono" => Some(Self::Mono),
+            _ => None,
+        }
+    }
+}
+
 /// What `get_settings` returns and `set_settings` takes.
 ///
 /// Every field is always present on the wire. `selectedPrinter` is null until
@@ -118,6 +173,14 @@ pub struct Settings {
     pub darkness: u8,
     /// How fast the label moves through the printer, in inches per second.
     pub speed_ips: u8,
+    /// Which font the eye-readable line on a replica is printed in.
+    pub label_font: LabelFont,
+    /// How far down the label the printed content is moved, in dots. A
+    /// negative number moves it up.
+    pub vertical_offset_dots: i16,
+    /// How far right along the label the printed content is moved, in dots. A
+    /// negative number moves it left.
+    pub horizontal_offset_dots: i16,
 }
 
 impl Default for Settings {
@@ -129,6 +192,9 @@ impl Default for Settings {
             print_method: PrintMethod::default(),
             darkness: DEFAULT_DARKNESS,
             speed_ips: DEFAULT_SPEED_IPS,
+            label_font: LabelFont::default(),
+            vertical_offset_dots: DEFAULT_OFFSET_DOTS,
+            horizontal_offset_dots: DEFAULT_OFFSET_DOTS,
         }
     }
 }
@@ -158,6 +224,18 @@ impl Settings {
                 SPEED_IPS_RANGE.start(),
                 SPEED_IPS_RANGE.end()
             ));
+        }
+        for (name, offset) in [
+            ("the vertical position", self.vertical_offset_dots),
+            ("the horizontal position", self.horizontal_offset_dots),
+        ] {
+            if !OFFSET_DOTS_RANGE.contains(&offset) {
+                return Err(format!(
+                    "{name} must be from {} to {} dots",
+                    OFFSET_DOTS_RANGE.start(),
+                    OFFSET_DOTS_RANGE.end()
+                ));
+            }
         }
         Ok(())
     }
@@ -199,6 +277,18 @@ pub fn read(connection: &Connection) -> rusqlite::Result<Settings> {
             .get(SPEED_IPS)
             .and_then(|value| value.parse().ok())
             .unwrap_or(defaults.speed_ips),
+        label_font: stored
+            .get(LABEL_FONT)
+            .and_then(|value| LabelFont::from_stored(value))
+            .unwrap_or(defaults.label_font),
+        vertical_offset_dots: stored
+            .get(VERTICAL_OFFSET_DOTS)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(defaults.vertical_offset_dots),
+        horizontal_offset_dots: stored
+            .get(HORIZONTAL_OFFSET_DOTS)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(defaults.horizontal_offset_dots),
     })
 }
 
@@ -228,6 +318,17 @@ pub fn write(connection: &mut Connection, settings: &Settings) -> rusqlite::Resu
     put(&transaction, PRINT_METHOD, settings.print_method.stored())?;
     put(&transaction, DARKNESS, &settings.darkness.to_string())?;
     put(&transaction, SPEED_IPS, &settings.speed_ips.to_string())?;
+    put(&transaction, LABEL_FONT, settings.label_font.stored())?;
+    put(
+        &transaction,
+        VERTICAL_OFFSET_DOTS,
+        &settings.vertical_offset_dots.to_string(),
+    )?;
+    put(
+        &transaction,
+        HORIZONTAL_OFFSET_DOTS,
+        &settings.horizontal_offset_dots.to_string(),
+    )?;
 
     transaction.commit()?;
     read(connection)
@@ -266,6 +367,9 @@ mod tests {
         assert_eq!(settings.print_method, PrintMethod::ThermalTransfer);
         assert_eq!(settings.darkness, 16);
         assert_eq!(settings.speed_ips, 3);
+        assert_eq!(settings.label_font, LabelFont::Printer);
+        assert_eq!(settings.vertical_offset_dots, 0);
+        assert_eq!(settings.horizontal_offset_dots, 0);
     }
 
     #[test]
@@ -280,6 +384,9 @@ mod tests {
             print_method: PrintMethod::DirectThermal,
             darkness: 24,
             speed_ips: 2,
+            label_font: LabelFont::Mono,
+            vertical_offset_dots: -12,
+            horizontal_offset_dots: 8,
         };
 
         let returned = write(&mut connection, &chosen).unwrap();
@@ -321,6 +428,9 @@ mod tests {
             ("print_method", "engraving"),
             ("darkness", "very"),
             ("speed_ips", "brisk"),
+            ("label_font", "copperplate"),
+            ("vertical_offset_dots", "a bit down"),
+            ("horizontal_offset_dots", "a bit across"),
         ] {
             connection
                 .execute(
@@ -347,6 +457,20 @@ mod tests {
                 write(&mut connection, &chosen).unwrap().print_method,
                 method
             );
+        }
+    }
+
+    #[test]
+    fn a_label_font_survives_the_trip_through_a_row() {
+        let mut connection = database();
+
+        for font in [LabelFont::Printer, LabelFont::Sans, LabelFont::Mono] {
+            let chosen = Settings {
+                label_font: font,
+                ..Settings::default()
+            };
+
+            assert_eq!(write(&mut connection, &chosen).unwrap().label_font, font);
         }
     }
 
@@ -393,6 +517,42 @@ mod tests {
     }
 
     #[test]
+    fn a_print_position_outside_the_range_the_app_allows_is_refused() {
+        for refused in [-101, 101, i16::MAX] {
+            assert!(
+                Settings {
+                    vertical_offset_dots: refused,
+                    ..Settings::default()
+                }
+                .check()
+                .is_err(),
+                "{refused} should be refused as a vertical position"
+            );
+            assert!(
+                Settings {
+                    horizontal_offset_dots: refused,
+                    ..Settings::default()
+                }
+                .check()
+                .is_err(),
+                "{refused} should be refused as a horizontal position"
+            );
+        }
+
+        for accepted in [-100, 0, 100] {
+            assert_eq!(
+                Settings {
+                    vertical_offset_dots: accepted,
+                    horizontal_offset_dots: accepted,
+                    ..Settings::default()
+                }
+                .check(),
+                Ok(())
+            );
+        }
+    }
+
+    #[test]
     fn the_defaults_pass_their_own_check() {
         assert_eq!(Settings::default().check(), Ok(()));
     }
@@ -424,6 +584,9 @@ mod tests {
             print_method: PrintMethod::DirectThermal,
             darkness: 16,
             speed_ips: 3,
+            label_font: LabelFont::Sans,
+            vertical_offset_dots: -4,
+            horizontal_offset_dots: 4,
         })
         .unwrap();
 
@@ -433,6 +596,9 @@ mod tests {
         assert_eq!(json["printMethod"], "directThermal");
         assert_eq!(json["darkness"], 16);
         assert_eq!(json["speedIps"], 3);
+        assert_eq!(json["labelFont"], "sans");
+        assert_eq!(json["verticalOffsetDots"], -4);
+        assert_eq!(json["horizontalOffsetDots"], 4);
     }
 
     #[test]
@@ -440,5 +606,12 @@ mod tests {
         let json = serde_json::to_value(Settings::default()).unwrap();
 
         assert_eq!(json["printMethod"], "thermalTransfer");
+    }
+
+    #[test]
+    fn the_default_label_font_is_the_printers_own() {
+        let json = serde_json::to_value(Settings::default()).unwrap();
+
+        assert_eq!(json["labelFont"], "printer");
     }
 }

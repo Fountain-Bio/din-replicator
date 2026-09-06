@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { barcodePayload, eyeReadable } from "@/lib/isbt128";
 import { scanOptOutProps } from "@/lib/scanner";
-import type { PrinterInfo, PrinterState } from "@/lib/tauri/types";
+import type { LabelFont, PrinterInfo, PrinterState } from "@/lib/tauri/types";
 import { CopyCount } from "./copy-count";
 import { LabelPreview } from "./label-preview";
 import type { Notice, ScanAction, ScanState } from "./scan-state";
@@ -35,6 +35,8 @@ export interface ScanScreenProps {
   printer: PrinterInfo | null;
   /** The printer's state, read fresh, or null while it loads. */
   printerState: PrinterState | null;
+  /** The font the replica is set in, so the preview shows what will print. */
+  labelFont: LabelFont;
   /**
    * Why printing is off for a reason that has nothing to do with the printer,
    * or null when nothing blocks it. The print log being unreachable is the one
@@ -51,6 +53,7 @@ export function ScanScreen({
   selectedPrinterName,
   printer,
   printerState,
+  labelFont,
   blockedReason,
   onPrint,
   onGoToSettings,
@@ -176,7 +179,7 @@ export function ScanScreen({
                 </div>
               </section>
 
-              <LabelPreview din={state.din} />
+              <LabelPreview din={state.din} labelFont={labelFont} />
             </div>
           )}
         </div>

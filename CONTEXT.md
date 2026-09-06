@@ -42,6 +42,10 @@ _Avoid_: copies, quantity
 The DIN, the flag characters, and the boxed check character printed under the barcode for a person to read.
 _Avoid_: human readable, HRI, label text, caption
 
+**Label font**:
+The font the eye-readable text is printed in. Either the printer's own font, which is the font the source labels use, or one of the two fonts the app carries and sends to the printer with the label.
+_Avoid_: typeface, font family, bundled font
+
 **Label stock**:
 The 1.75 by 0.75 inch media loaded in the printer.
 _Avoid_: media, roll, sticker

@@ -245,7 +245,10 @@ export default function App() {
         printMethod: settings.printMethod,
         darkness: settings.darkness,
         speedIps: settings.speedIps,
+        verticalOffsetDots: settings.verticalOffsetDots,
+        horizontalOffsetDots: settings.horizontalOffsetDots,
       },
+      labelFont: settings.labelFont,
     });
     dispatch({ type: "print-started" });
 
@@ -372,6 +375,7 @@ export default function App() {
               selectedPrinterName={selectedPrinterName}
               printer={selectedPrinter}
               printerState={shownPrinterState}
+              labelFont={settings?.labelFont ?? FALLBACK_SETTINGS.labelFont}
               blockedReason={blockedReason}
               onPrint={() => void print()}
               onGoToSettings={() => setScreen("settings")}

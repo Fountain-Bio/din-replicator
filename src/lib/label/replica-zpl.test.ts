@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { eyeReadable } from "../isbt128";
+import { BUNDLED_LABEL_FONTS, LABEL_CHARACTERS } from "./fonts";
 import {
   BAR_HEIGHT_DOTS,
   buildBarcodeFieldData,
@@ -12,16 +13,20 @@ import {
   DARKNESS_MIN,
   DEFAULT_PRINT_SETTINGS,
   DIN_TEXT_WIDTH_DOTS,
+  DIN_TO_FLAGS_GAP_DOTS,
   dinTextWidthDots,
   DOTS_PER_INCH,
   DOTS_PER_MM,
   eyeReadableLineWidthDots,
+  FLAGS_TO_BOX_GAP_DOTS,
   FONT_HEIGHT_CHOICES_DOTS,
   LABEL_HEIGHT_DOTS,
   LABEL_WIDTH_DOTS,
   LEFT_MARGIN_DOTS,
   MAX_COPIES,
   MODULE_WIDTH_CHOICES_DOTS,
+  OFFSET_DOTS_MAX,
+  OFFSET_DOTS_MIN,
   QUIET_ZONE_MIN_MODULES,
   replicaLabelGeometry,
   rotatedInkLeftOffsetDots,
@@ -247,9 +252,9 @@ describe("the widest DIN the structure rules allow", () => {
 
 describe("chooseFontHeightDots", () => {
   it("takes the tallest font whose line still clears the left margin", () => {
-    expect(FONT_HEIGHT_CHOICES_DOTS).toEqual([50, 46, 42, 38, 34, 30]);
+    expect(FONT_HEIGHT_CHOICES_DOTS).toEqual([50, 46, 42, 38, 34, 30, 26]);
     expect(chooseFontHeightDots("W4836 26 000011", 480)).toBe(46);
-    expect(chooseFontHeightDots("AB123 26 000011", 419)).toBe(42);
+    expect(chooseFontHeightDots("AB123 26 000011", 419)).toBe(38);
   });
 
   it("shrinks the font as the line loses room", () => {
@@ -391,10 +396,9 @@ describe("the eye-readable line", () => {
 
       const dinRight = dinLeft + dinTextWidthDots(eyeReadable(din).text, height);
       const flagsInkLeft = flagsLeft + rotatedInkLeftOffsetDots(height);
-      expect(dinRight).toBeLessThan(flagsInkLeft);
-      expect(flagsInkLeft + capHeightDots(height)).toBeLessThanOrEqual(boxLeft);
-      // Packed: the DIN and the flag characters sit a few dots apart, not spread out.
-      expect(flagsInkLeft - dinRight).toBeLessThanOrEqual(12);
+      // The three parts sit at the gaps the layout names, whatever the font height.
+      expect(flagsInkLeft - dinRight).toBe(DIN_TO_FLAGS_GAP_DOTS);
+      expect(boxLeft - (flagsInkLeft + capHeightDots(height))).toBe(FLAGS_TO_BOX_GAP_DOTS);
     }
   });
 
@@ -413,11 +417,13 @@ describe("the eye-readable line", () => {
 });
 
 describe("print settings", () => {
-  it("defaults to thermal transfer, darkness 16, and 3 inches per second", () => {
+  it("defaults to thermal transfer, darkness 16, 3 inches per second, and no shift", () => {
     expect(DEFAULT_PRINT_SETTINGS).toEqual({
       printMethod: "thermalTransfer",
       darkness: 16,
       speedIps: 3,
+      verticalOffsetDots: 0,
+      horizontalOffsetDots: 0,
     });
     const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1 });
     expect(zpl.split("\n").slice(0, 5)).toEqual(["~SD16", "^XA", "^CI28", "^MTT", "^PR3,3,3"]);
@@ -427,7 +433,12 @@ describe("print settings", () => {
     const zpl = buildReplicaZpl({
       din: ONE_LETTER_FIN,
       copies: 1,
-      printSettings: { printMethod: "directThermal", darkness: 8, speedIps: 6 },
+      printSettings: {
+        ...DEFAULT_PRINT_SETTINGS,
+        printMethod: "directThermal",
+        darkness: 8,
+        speedIps: 6,
+      },
     });
     expect(zpl.split("\n").slice(0, 5)).toEqual(["~SD08", "^XA", "^CI28", "^MTD", "^PR6,6,6"]);
   });
@@ -475,6 +486,64 @@ describe("print settings", () => {
     }
   });
 
+  it("moves the whole format on the stock by the print position offsets", () => {
+    const zpl = buildReplicaZpl({
+      din: ONE_LETTER_FIN,
+      copies: 1,
+      printSettings: { ...DEFAULT_PRINT_SETTINGS, verticalOffsetDots: 24, horizontalOffsetDots: 9 },
+    });
+    const lines = zpl.split("\n");
+
+    // Both sit inside the format, straight after the label length, which is before the first
+    // ^FS as ^LS requires.
+    expect(lines[lines.indexOf(`^LL${LABEL_HEIGHT_DOTS}`) + 1]).toBe("^LT24");
+    expect(lines[lines.indexOf(`^LL${LABEL_HEIGHT_DOTS}`) + 2]).toBe("^LS-9");
+    expect(zpl.indexOf("^LS")).toBeLessThan(zpl.indexOf("^FS"));
+  });
+
+  it("turns the horizontal offset over, because ^LS shifts left", () => {
+    for (const [horizontalOffsetDots, expected] of [
+      [0, "^LS0"],
+      [12, "^LS-12"],
+      [-12, "^LS12"],
+    ] as const) {
+      const zpl = buildReplicaZpl({
+        din: ONE_LETTER_FIN,
+        copies: 1,
+        printSettings: { ...DEFAULT_PRINT_SETTINGS, horizontalOffsetDots },
+      });
+      expect(zpl.split("\n")).toContain(expected);
+    }
+  });
+
+  it("sends both offsets even when neither moves anything", () => {
+    // ^LS holds until the printer is switched off, so a label that leaves it out would
+    // inherit whatever the last one set.
+    const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1 });
+
+    expect(zpl.split("\n")).toContain("^LT0");
+    expect(zpl.split("\n")).toContain("^LS0");
+  });
+
+  it("rejects a print position outside the range the app allows", () => {
+    for (const offset of [OFFSET_DOTS_MIN - 1, OFFSET_DOTS_MAX + 1, 2.5, Number.NaN]) {
+      expect(() =>
+        buildReplicaZpl({
+          din: ONE_LETTER_FIN,
+          copies: 1,
+          printSettings: { ...DEFAULT_PRINT_SETTINGS, verticalOffsetDots: offset },
+        }),
+      ).toThrow(/Vertical position/);
+      expect(() =>
+        buildReplicaZpl({
+          din: ONE_LETTER_FIN,
+          copies: 1,
+          printSettings: { ...DEFAULT_PRINT_SETTINGS, horizontalOffsetDots: offset },
+        }),
+      ).toThrow(/Horizontal position/);
+    }
+  });
+
   it("rejects a print method the printer does not have", () => {
     expect(() =>
       buildReplicaZpl({
@@ -487,4 +556,110 @@ describe("print settings", () => {
       }),
     ).toThrow(/Print method/);
   });
+});
+
+describe("the label font", () => {
+  /** The `~DU` download lines in `zpl`, which carry a bundled font to the printer. */
+  function downloadCommands(zpl: string): string[] {
+    return zpl.split("\n").filter((line) => line.startsWith("~DU"));
+  }
+
+  /** The font each text field names, in the order the fields are written. */
+  function fontReferences(zpl: string): string[] {
+    return [...zpl.matchAll(/\^A[0@][NR],\d+,\d+(?:,[^^]+)?/g)].map((match) => match[0]);
+  }
+
+  it("prints in the printer's own font when nobody chooses one", () => {
+    for (const din of EVERY_FIN_SHAPE) {
+      expect(buildReplicaZpl({ din, copies: 1 })).toBe(
+        buildReplicaZpl({ din, copies: 1, labelFont: "printer" }),
+      );
+    }
+  });
+
+  it("sends nothing extra to the printer for the printer's own font", () => {
+    const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1, labelFont: "printer" });
+
+    expect(downloadCommands(zpl)).toEqual([]);
+    expect(fontReferences(zpl)).toEqual([
+      `^A0N,${fontHeight(zpl)},${fontHeight(zpl)}`,
+      `^A0R,${fontHeight(zpl)},${fontHeight(zpl)}`,
+      `^A0N,${fontHeight(zpl)},${fontHeight(zpl)}`,
+    ]);
+  });
+
+  for (const labelFont of ["sans", "mono"] as const) {
+    const font = BUNDLED_LABEL_FONTS[labelFont];
+
+    describe(font.displayName, () => {
+      const zpl = buildReplicaZpl({ din: ONE_LETTER_FIN, copies: 1, labelFont });
+
+      it("goes down to the printer once, ahead of the label format", () => {
+        const downloads = downloadCommands(zpl);
+
+        expect(downloads).toHaveLength(1);
+        expect(zpl.indexOf(downloads[0]!)).toBeLessThan(zpl.indexOf("^XA"));
+      });
+
+      it("tells the printer how many bytes it is about to read", () => {
+        const [path, byteCount, data] = downloadCommands(zpl)[0]!.slice("~DU".length).split(",");
+
+        expect(path).toBe(font.zplPath);
+        expect(Number(byteCount)).toBe(font.byteCount);
+        // Two hexadecimal digits carry one byte, so the data is twice as long.
+        expect(data).toHaveLength(font.byteCount * 2);
+        expect(data).toMatch(/^[0-9A-F]+$/);
+      });
+
+      it("is named by all three text fields", () => {
+        const height = Number(/\^A@N,(\d+),/.exec(zpl)![1]);
+
+        expect(fontReferences(zpl)).toEqual([
+          `^A@N,${height},${height},${font.zplPath}`,
+          `^A@R,${height},${height},${font.zplPath}`,
+          `^A@N,${height},${height},${font.zplPath}`,
+        ]);
+        expect(zpl).not.toContain("^A0");
+      });
+
+      it("places the check character itself rather than through a field block", () => {
+        // The printer's own note on `~DU` says `^FB` does not work with a
+        // downloaded font, so the check character is centred by measurement.
+        expect(zpl).not.toContain("^FB");
+      });
+
+      it("holds a glyph for every character a label can show", () => {
+        for (const character of LABEL_CHARACTERS) {
+          expect(font.glyphs[character], `no glyph for "${character}"`).toBeDefined();
+        }
+      });
+
+      it("leaves the widest DIN a font height that fits", () => {
+        // 156 modules at 2 dots leaves the smallest right edge any label gets.
+        const geometry = replicaLabelGeometry(TWO_LETTER_FIN);
+        const lineRight = geometry.quietZoneDots + geometry.symbolWidthDots;
+        const height = chooseFontHeightDots(WIDEST_DIN_TEXT, lineRight, labelFont);
+
+        expect(FONT_HEIGHT_CHOICES_DOTS).toContain(height);
+        expect(eyeReadableLineWidthDots(WIDEST_DIN_TEXT, height, labelFont)).toBeLessThanOrEqual(
+          lineRight - LEFT_MARGIN_DOTS,
+        );
+      });
+
+      it("keeps every shape of DIN inside the label", () => {
+        for (const din of EVERY_FIN_SHAPE) {
+          const built = buildReplicaZpl({ din, copies: 1, labelFont });
+          const text = eyeReadable(din);
+          const height = Number(/\^A@N,(\d+),/.exec(built)![1]);
+
+          expect(fieldOriginX(built, `^FD${text.text}^FS`)).toBeGreaterThanOrEqual(
+            LEFT_MARGIN_DOTS - dinTextWidthDots(text.text, height, labelFont),
+          );
+          expect(built).toContain(`^FD${text.text}^FS`);
+          expect(built).toContain(`^FD${text.flags}^FS`);
+          expect(built).toContain(`^FD${text.check}^FS`);
+        }
+      });
+    });
+  }
 });

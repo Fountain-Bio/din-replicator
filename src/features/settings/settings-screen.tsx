@@ -1,7 +1,8 @@
 /**
  * Which printer replicas go to, whether the app asks for a verification scan,
  * how many replicas one print run may produce, how the printer marks the label
- * stock, and where the print log lives.
+ * stock, which font the eye-readable line is set in, and where the print log
+ * lives.
  *
  * Every change is saved through `set_settings` as soon as it is made, so there
  * is no Save button to forget.
@@ -28,9 +29,10 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { BUNDLED_LABEL_FONTS, type LabelFont } from "@/lib/label/fonts";
 import { MAX_COPIES } from "@/lib/label/replica-zpl";
 import { connectionText, printerConnection } from "@/lib/printer/connection";
-import { clampWhole, DARKNESS_RANGE, SPEED_IPS_RANGE } from "@/lib/settings";
+import { clampWhole, DARKNESS_RANGE, OFFSET_DOTS_RANGE, SPEED_IPS_RANGE } from "@/lib/settings";
 import type { PrinterInfo, PrintMethod, Settings, StorageInfo } from "@/lib/tauri/types";
 
 export interface SettingsScreenProps {
@@ -57,6 +59,26 @@ const PRINT_METHODS: Array<{ value: PrintMethod; label: string; explanation: str
     value: "directThermal",
     label: "Direct thermal",
     explanation: "No ribbon. The heat darkens heat-sensitive label stock.",
+  },
+];
+
+/** How each label font reads, and the one line that explains it. */
+const LABEL_FONTS: Array<{ value: LabelFont; label: string; explanation: string }> = [
+  {
+    value: "printer",
+    label: "Printer font",
+    explanation: "The printer's own font, and the font the source labels are set in.",
+  },
+  {
+    value: "sans",
+    label: BUNDLED_LABEL_FONTS.sans.displayName,
+    explanation: "A sans serif face the app sends to the printer with each label.",
+  },
+  {
+    value: "mono",
+    label: BUNDLED_LABEL_FONTS.mono.displayName,
+    explanation:
+      "A sans serif face whose characters are all one width, so a DIN lines up column by column.",
   },
 ];
 
@@ -87,6 +109,8 @@ export function SettingsScreen({
 
   const currentMethod =
     PRINT_METHODS.find((method) => method.value === settings.printMethod) ?? PRINT_METHODS[0]!;
+  const currentFont =
+    LABEL_FONTS.find((font) => font.value === settings.labelFont) ?? LABEL_FONTS[0]!;
 
   return (
     <div className="mx-auto flex w-full max-w-[44rem] flex-col gap-8 pb-12">
@@ -209,7 +233,8 @@ export function SettingsScreen({
           <h2 className="text-base font-semibold tracking-tight">Printing</h2>
           <ChevronDownIcon className="size-4 text-muted-foreground transition-transform duration-200 group-data-[state=open]/printing:rotate-180" />
           <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-            {currentMethod.label} · darkness {settings.darkness} · {settings.speedIps} ips
+            {currentMethod.label} · darkness {settings.darkness} · {settings.speedIps} ips ·{" "}
+            {currentFont.label}
           </span>
         </CollapsibleTrigger>
         <CollapsibleContent className="flex flex-col gap-6 pt-5">
@@ -235,6 +260,33 @@ export function SettingsScreen({
               </SelectContent>
             </Select>
             <p className="text-sm text-muted-foreground">{currentMethod.explanation}</p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="label-font" className="text-sm font-normal">
+              Label font
+            </Label>
+            <Select
+              value={settings.labelFont}
+              onValueChange={(value) => onChange({ ...settings, labelFont: value as LabelFont })}
+            >
+              <SelectTrigger id="label-font" className="h-10 w-full max-w-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LABEL_FONTS.map((font) => (
+                  <SelectItem key={font.value} value={font.value}>
+                    {font.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">{currentFont.explanation}</p>
+            <p className="text-sm text-muted-foreground">
+              The eye-readable line under the barcode is set in this font. A replica in the printer
+              font matches its source label. The other two travel to the printer with each label and
+              are gone when it is switched off.
+            </p>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -284,6 +336,65 @@ export function SettingsScreen({
             <p className="text-sm text-muted-foreground">
               Inches per second, {SPEED_IPS_RANGE.min} to {SPEED_IPS_RANGE.max}. Slower prints
               darker and sharper.
+            </p>
+          </div>
+
+          {/* Where the printer puts the whole label, for a roll that sits a
+              little off in the printer. Neither number moves anything within
+              the label. */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="vertical-offset" className="text-sm font-normal">
+              Vertical position
+            </Label>
+            <Input
+              id="vertical-offset"
+              type="number"
+              inputMode="numeric"
+              min={OFFSET_DOTS_RANGE.min}
+              max={OFFSET_DOTS_RANGE.max}
+              value={settings.verticalOffsetDots}
+              className="h-10 w-24 text-base tabular-nums"
+              onChange={(event) =>
+                onChange({
+                  ...settings,
+                  verticalOffsetDots: clampWhole(
+                    Number(event.currentTarget.value),
+                    OFFSET_DOTS_RANGE,
+                  ),
+                })
+              }
+            />
+            <p className="text-sm text-muted-foreground">
+              Dots, {OFFSET_DOTS_RANGE.min} to {OFFSET_DOTS_RANGE.max}. A positive number moves what
+              is printed down the label. 12 dots is a millimetre.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="horizontal-offset" className="text-sm font-normal">
+              Horizontal position
+            </Label>
+            <Input
+              id="horizontal-offset"
+              type="number"
+              inputMode="numeric"
+              min={OFFSET_DOTS_RANGE.min}
+              max={OFFSET_DOTS_RANGE.max}
+              value={settings.horizontalOffsetDots}
+              className="h-10 w-24 text-base tabular-nums"
+              onChange={(event) =>
+                onChange({
+                  ...settings,
+                  horizontalOffsetDots: clampWhole(
+                    Number(event.currentTarget.value),
+                    OFFSET_DOTS_RANGE,
+                  ),
+                })
+              }
+            />
+            <p className="text-sm text-muted-foreground">
+              Dots, {OFFSET_DOTS_RANGE.min} to {OFFSET_DOTS_RANGE.max}. A positive number moves what
+              is printed to the right.
             </p>
           </div>
         </CollapsibleContent>

@@ -6,10 +6,13 @@
  * nothing to go on: the saved settings could not be read at all.
  */
 
+import { DEFAULT_LABEL_FONT } from "@/lib/label/fonts";
 import {
   DARKNESS_MAX,
   DARKNESS_MIN,
   DEFAULT_PRINT_SETTINGS,
+  OFFSET_DOTS_MAX,
+  OFFSET_DOTS_MIN,
   SPEED_IPS_MAX,
   SPEED_IPS_MIN,
 } from "@/lib/label/replica-zpl";
@@ -20,6 +23,9 @@ export const DARKNESS_RANGE = { min: DARKNESS_MIN, max: DARKNESS_MAX } as const;
 
 /** How fast a label leaves the printer, in inches per second. */
 export const SPEED_IPS_RANGE = { min: SPEED_IPS_MIN, max: SPEED_IPS_MAX } as const;
+
+/** How far the printed content may be moved on the label stock, in dots. */
+export const OFFSET_DOTS_RANGE = { min: OFFSET_DOTS_MIN, max: OFFSET_DOTS_MAX } as const;
 
 /**
  * What the app uses when the saved settings cannot be read.
@@ -32,6 +38,7 @@ export const FALLBACK_SETTINGS: Settings = {
   selectedPrinter: null,
   verifyAfterPrint: true,
   maxCopies: 20,
+  labelFont: DEFAULT_LABEL_FONT,
   ...DEFAULT_PRINT_SETTINGS,
 };
 

@@ -1,13 +1,22 @@
 /**
  * Draws the replica label on screen from the same ZPL the printer is sent.
  *
+ * The preview leaves the print position offsets alone and draws the label as
+ * the format lays it out. Those offsets move the whole image on the stock to
+ * line it up with the media, which is a thing to judge on a printed label
+ * rather than on a screen.
+ *
  * The renderer is zebrash, which runs inside the page, so label data never
- * leaves the machine. It reads its fonts from `public/fonts/`, so the preview
- * also works on a machine with no internet connection.
+ * leaves the machine. It reads its stand-ins for the printer's built-in fonts
+ * from `public/fonts/`, so the preview also works on a machine with no
+ * internet connection. A label set in a bundled font carries that font inside
+ * its own ZPL, and zebrash draws it from those bytes, so the preview and the
+ * print agree.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { Drawer, Parser, setFontBaseUrl } from "@zebrash/browser";
+import type { LabelFont } from "@/lib/label/fonts";
 import {
   buildReplicaZpl,
   DOTS_PER_MM,
@@ -39,22 +48,22 @@ async function renderZpl(zpl: string): Promise<string> {
   return URL.createObjectURL(new Blob([new Uint8Array(png)], { type: "image/png" }));
 }
 
-export function LabelPreview({ din }: { din: string }) {
+export function LabelPreview({ din, labelFont }: { din: string; labelFont: LabelFont }) {
   // The preview shows one label whatever the copy count is, so it is built
-  // again only when the DIN changes. Both calls refuse a DIN whose barcode
-  // will not fit the label stock, and that refusal belongs on screen rather
-  // than in a crashed render.
+  // again only when the DIN or the font changes. Both calls refuse a DIN whose
+  // barcode will not fit the label stock, and that refusal belongs on screen
+  // rather than in a crashed render.
   const plan = useMemo<Plan>(() => {
     try {
       return {
         ok: true,
-        zpl: buildReplicaZpl({ din, copies: 1 }),
+        zpl: buildReplicaZpl({ din, copies: 1, labelFont }),
         symbolWidthMm: replicaLabelGeometry(din).symbolWidthMm,
       };
     } catch (reason) {
       return { ok: false, reason: reason instanceof Error ? reason.message : String(reason) };
     }
-  }, [din]);
+  }, [din, labelFont]);
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
