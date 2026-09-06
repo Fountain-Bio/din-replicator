@@ -24,12 +24,12 @@ The replica is a DIN label that follows ICCBBA ST-001, the ISBT 128 Standard Tec
 
 The app listens for scanner input at the window level, so a scan works no matter which control has focus. It accepts these forms and reads the DIN from each:
 
-| Form | Example | Notes |
-| --- | --- | --- |
-| Compliant barcode payload | `=W48362600001100` | `=`, DIN, flag characters |
-| Bare DIN | `W483626000011` | Typed by hand or from a plain-text label |
-| Legacy 15-character form | `=W483626000011N` | An earlier label tool encoded the check character in the barcode |
-| Legacy form with a scanner suffix | `=W483626000011N0` | The legacy form after a scanner rule appends `0` |
+| Form                              | Example            | Notes                                                            |
+| --------------------------------- | ------------------ | ---------------------------------------------------------------- |
+| Compliant barcode payload         | `=W48362600001100` | `=`, DIN, flag characters                                        |
+| Bare DIN                          | `W483626000011`    | Typed by hand or from a plain-text label                         |
+| Legacy 15-character form          | `=W483626000011N`  | An earlier label tool encoded the check character in the barcode |
+| Legacy form with a scanner suffix | `=W483626000011N0` | The legacy form after a scanner rule appends `0`                 |
 
 Anything else is refused with a message that names what was scanned, for example a blood group or a product code. A legacy scan whose check character does not match the DIN is refused as a damaged or misprinted label.
 
