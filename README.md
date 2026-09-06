@@ -64,3 +64,7 @@ Layout:
 - ICCBBA IG-043, A Validation Tool for ISBT 128 Data Structures, whose section 3.1.1 vectors are in the test suite.
 
 Facilities that use ISBT 128 must be registered with ICCBBA.
+
+## License
+
+MIT. See LICENSE.
