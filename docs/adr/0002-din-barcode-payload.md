@@ -10,5 +10,5 @@ This deliberately differs from an earlier in-house label tool, which encodes `=`
 
 ## Consequences
 
-- The scan parser accepts the compliant 16-character form, the 15-character legacy form, the 16-character form produced by the scanner rule, and a bare DIN, and normalizes all of them to the bare DIN before recomputing K.
+- The scan parser accepts the compliant 16-character form, the 15-character legacy form, the 16-character form produced by the scanner rule, a bare DIN, and a bare DIN followed by its check character, and normalizes all of them to the bare DIN before recomputing K.
 - Test vectors come from ICCBBA IG-043 section 3.1.1, ST-001 appendix A, and a sample label scanned from a production system (`W483626000011`, K = N).

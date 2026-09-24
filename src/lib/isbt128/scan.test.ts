@@ -14,6 +14,54 @@ describe("parseScan", () => {
     expect(parseScan(SAMPLE_DIN)).toEqual({ kind: "din", din: SAMPLE_DIN, form: "bare" });
   });
 
+  it("reads a DIN followed by its check character and confirms the check character", () => {
+    expect(parseScan("W483626000011N")).toEqual({
+      kind: "din",
+      din: SAMPLE_DIN,
+      form: "bare-check",
+      scannedCheck: "N",
+      checkMatches: true,
+    });
+    expect(parseScan("W4836260002890")).toEqual({
+      kind: "din",
+      din: ZERO_CHECK_DIN,
+      form: "bare-check",
+      scannedCheck: "0",
+      checkMatches: true,
+    });
+  });
+
+  it("reports a DIN followed by a check character that does not match it", () => {
+    expect(parseScan("W483626000011X")).toEqual({
+      kind: "din",
+      din: SAMPLE_DIN,
+      form: "bare-check",
+      scannedCheck: "X",
+      checkMatches: false,
+    });
+  });
+
+  it("uppercases and trims a DIN typed with its check character", () => {
+    expect(parseScan("w483626000011n\r\n")).toEqual({
+      kind: "din",
+      din: SAMPLE_DIN,
+      form: "bare-check",
+      scannedCheck: "N",
+      checkMatches: true,
+    });
+  });
+
+  it("reports the structure rule a DIN typed with a check character breaks", () => {
+    expect(parseScan("O483626000011N")).toEqual({
+      kind: "not-din",
+      reason: "bad-first-character",
+    });
+  });
+
+  it("reports a 14-character scan whose last character cannot be a check character", () => {
+    expect(parseScan("W483626000011!")).toEqual({ kind: "not-din", reason: "unrecognized" });
+  });
+
   it("reads the compliant 16-character payload and reports its flag characters", () => {
     expect(parseScan("=W48362600001100")).toEqual({
       kind: "din",

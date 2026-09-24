@@ -239,16 +239,20 @@ function reduceSourceScan(state: ScanState, raw: string): ScanState {
     return { ...state, notice: { tone: "error", text } };
   }
 
-  // The legacy 15-character form carries a check character, so the app can
-  // tell that the source label disagrees with its own DIN. ADR 0002 and the
-  // check character rule in ST-001 section 7.5 make that a reason to stop:
-  // copying a damaged label would spread the damage.
+  // A DIN typed with its check character, and the legacy 15-character form,
+  // both carry K, so the app can tell when K disagrees with the DIN. ST-001
+  // section 7.5 makes that a reason to stop. A typed DIN with the wrong K most
+  // likely has a typo in it, and copying a damaged label would spread the
+  // damage.
   if ("checkMatches" in result && !result.checkMatches) {
     return {
       ...state,
       notice: {
         tone: "error",
-        text: "The scanned label's check character does not match. The source label looks damaged or misprinted.",
+        text:
+          result.form === "bare-check"
+            ? `The check character ${result.scannedCheck} does not match DIN ${dinText(result.din)}. Check the DIN for a typo.`
+            : "The scanned label's check character does not match. The source label looks damaged or misprinted.",
       },
     };
   }

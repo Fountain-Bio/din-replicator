@@ -65,6 +65,25 @@ describe("scanReducer", () => {
     expect(state.din).toBe(DIN);
   });
 
+  it("loads the DIN from a DIN typed with its check character", () => {
+    const state = run([{ type: "scanned", raw: "W483626000011N" }]);
+
+    expect(state.din).toBe(DIN);
+    expect(state.scannedFlags).toBeNull();
+    expect(state.notice).toBeNull();
+  });
+
+  it("refuses a DIN typed with a check character that does not match", () => {
+    // The check character of the sample DIN is N, so A disagrees with it.
+    const state = run([{ type: "scanned", raw: "W483626000011A" }]);
+
+    expect(state.din).toBeNull();
+    expect(state.notice).toEqual({
+      tone: "error",
+      text: `The check character A does not match DIN ${DIN_TEXT}. Check the DIN for a typo.`,
+    });
+  });
+
   it("names what was scanned when the scan is not a DIN", () => {
     const state = run([{ type: "scanned", raw: "=%A1B2" }]);
 
@@ -261,6 +280,14 @@ describe("scanReducer", () => {
     // A source label in the legacy 15-character form holds the printed DIN,
     // but it is not one of the replicas this print run produced.
     const state = run([{ type: "scanned", raw: "=W483626000011N" }], verifying());
+
+    expect(state.pendingVerification?.matched).toBe(false);
+  });
+
+  it("fails verification when the DIN is typed with its check character", () => {
+    // A replica is only verified by scanning its barcode, and a typed DIN is
+    // not a scan of one.
+    const state = run([{ type: "scanned", raw: "W483626000011N" }], verifying());
 
     expect(state.pendingVerification?.matched).toBe(false);
   });

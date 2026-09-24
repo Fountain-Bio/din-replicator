@@ -18,6 +18,9 @@ import {
   type DinInvalidReason,
 } from "./din";
 
+/** The length of the DIN plus one check character, with no data identifier. */
+const BARE_CHECK_LENGTH = DIN_LENGTH + 1;
+
 /** The length of "=" plus the DIN plus one check character, the legacy 15-character form. */
 const LEGACY_CHECK_LENGTH = 1 + DIN_LENGTH + 1;
 
@@ -28,6 +31,12 @@ const PAYLOAD_LENGTH = 1 + DIN_LENGTH + 2;
 export type ScanForm =
   /** The 13-character DIN on its own, with no data identifier. */
   | "bare"
+  /**
+   * The 13-character DIN followed by its check character, with no data
+   * identifier. An operator types this form when they copy the eye-readable
+   * text of a label without its spaces or its flag characters.
+   */
+  | "bare-check"
   /** The compliant 16-character payload: "=", the DIN, and two flag characters. */
   | "payload"
   /** The legacy 15-character form, printed by an earlier in-house label tool: "=", the DIN, and K. */
@@ -67,11 +76,11 @@ export type ScanResult =
   | { kind: "din"; din: string; form: "bare" }
   /** The compliant payload, which carries the two flag characters it encoded. */
   | { kind: "din"; din: string; form: "payload"; flags: string }
-  /** The legacy 15-character form, which carries the check character the scan held. */
+  /** A form that carries a check character, which the result compares against the DIN. */
   | {
       kind: "din";
       din: string;
-      form: "legacy-check" | "legacy-check-suffixed";
+      form: "bare-check" | "legacy-check" | "legacy-check-suffixed";
       /** The check character the scan carried. */
       scannedCheck: string;
       /** Whether `scannedCheck` equals the check character computed from `din`. */
@@ -122,7 +131,39 @@ export function parseScan(raw: string): ScanResult {
       : { kind: "not-din", reason: validation.reason };
   }
 
+  if (scan.length === BARE_CHECK_LENGTH) {
+    return parseBareCheck(scan);
+  }
+
   return { kind: "not-din", reason: "unrecognized" };
+}
+
+/**
+ * Reads a 14-character scan with no data identifier as the DIN followed by its
+ * check character.
+ *
+ * ST-001 section 7.5 prints K in the eye-readable text so a person can confirm
+ * a DIN they typed by hand. The result reports whether the typed K matches the
+ * K computed from the DIN, and the caller decides what to do about a mismatch.
+ */
+function parseBareCheck(scan: string): ScanResult {
+  const din = scan.slice(0, DIN_LENGTH);
+  const validation = validateDin(din);
+  if (!validation.ok) {
+    return { kind: "not-din", reason: validation.reason };
+  }
+
+  const scannedCheck = scan.slice(DIN_LENGTH);
+  if (!isCheckCharacter(scannedCheck)) {
+    return { kind: "not-din", reason: "unrecognized" };
+  }
+  return {
+    kind: "din",
+    din,
+    form: "bare-check",
+    scannedCheck,
+    checkMatches: scannedCheck === checkCharacter(din),
+  };
 }
 
 /**
