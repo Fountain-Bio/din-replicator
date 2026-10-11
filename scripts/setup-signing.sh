@@ -314,6 +314,10 @@ else
       open_url "https://developer.apple.com/programs/enroll/"
       pause "Press Enter once your membership is active"
     fi
+    # Apple runs two Developer ID intermediate authorities. Certificates from
+    # the original one stop working on February 1, 2027, so a new certificate
+    # has to come from G2.
+    # https://developer.apple.com/help/account/certificates/replace-developer-id-certificates/
     step "Open Xcode, then Settings > Accounts."
     step "Select your Apple Account and click Manage Certificates."
     step "Click the + button at the bottom left and choose"
@@ -322,6 +326,9 @@ else
     note "Certificate From a Certificate Authority to make a"
     note ".certSigningRequest, upload it in the developer portal, pick"
     note "Developer ID Application, then download and double-click the .cer."
+    warn "When the portal asks for a Developer ID Certificate Intermediary,"
+    warn "choose G2 Sub-CA. The other choice issues a certificate that stops"
+    warn "working on February 1, 2027."
     open_url "https://developer.apple.com/account/resources/certificates/list"
     pause "Press Enter once the certificate exists"
     identity_list=$(developer_id_identities || true)

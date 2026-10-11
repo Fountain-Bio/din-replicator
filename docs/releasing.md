@@ -171,9 +171,14 @@ whenever a credential expires. It does not touch `TAURI_SIGNING_PRIVATE_KEY` or
 | `APPLE_TEAM_ID`              | The ten character Team ID. It is also the code in brackets at the end of the certificate name.                               |
 
 A Developer ID Application certificate is the one Apple issues for distribution outside the
-Mac App Store. There is no separate `APPLE_SIGNING_IDENTITY` secret: the job imports the
-certificate into a keychain, reads the identity string back out of it, and passes that to the
-bundler.
+Mac App Store. It has to come from the G2 intermediate authority, so choose G2 Sub-CA when the
+developer portal asks for a Developer ID Certificate Intermediary. Certificates from the
+original intermediate stop working on February 1, 2027. To see which one issued a certificate,
+run `security find-certificate -c "Developer ID Application" -p | openssl x509 -noout -issuer`.
+An issuer with `OU=G2` is the current authority.
+
+There is no separate `APPLE_SIGNING_IDENTITY` secret: the job imports the certificate into a
+keychain, reads the identity string back out of it, and passes that to the bundler.
 
 Notarization is Apple scanning the signed app and issuing a ticket for it. The bundler staples
 the ticket to the `.app` inside the DMG, so a Mac with no internet connection can still see
