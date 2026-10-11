@@ -200,8 +200,9 @@ finish() {
 # No value is written to disk. Secrets live in shell variables for the length
 # of the run and go straight to GitHub. The wizard never prints one back, so
 # a mistyped value shows up as a failing release build rather than on screen.
-# Re-running the wizard overwrites the secrets, which is how a wrong value
-# gets corrected.
+# A re-run skips each half whose secrets are all stored already. Pass
+# --replace to run those halves again and overwrite their secrets, which is
+# how a renewed certificate or a wrong value gets stored.
 #
 # The Azure half can stall for days at identity validation, which Microsoft
 # performs and which only the Azure portal can start. The wizard stops there
@@ -238,12 +239,15 @@ DO_AZURE=true
 
 # --apple-only and --azure-only run one half of the wizard. The two halves
 # store their secrets independently, so either can be finished on its own.
+# --replace runs a half even when all of its secrets are already stored.
+REPLACE=false
 for arg in "$@"; do
   case "$arg" in
     --apple-only) DO_AZURE=false ;;
     --azure-only) DO_APPLE=false ;;
+    --replace) REPLACE=true ;;
     -h|--help)
-      printf 'usage: %s [--apple-only | --azure-only]\n' "$0"
+      printf 'usage: %s [--apple-only | --azure-only] [--replace]\n' "$0"
       exit 0
       ;;
     *) printf 'unknown option: %s\n' "$arg" >&2; exit 2 ;;
@@ -273,7 +277,8 @@ developer_id_identities() {
 banner "DIN Replicator release signing"
 
 # Secrets already on the repository are the wizard's memory. A half that is
-# fully stored is skipped, so a re-run only asks for what is missing.
+# fully stored is skipped, so a re-run only asks for what is missing. With
+# --replace, every half this run covers asks again and overwrites what is stored.
 stored_secrets=$(gh secret list 2>/dev/null | awk '{print $1}' || true)
 has_every_secret() {
   for name in "$@"; do
@@ -281,16 +286,16 @@ has_every_secret() {
   done
   return 0
 }
-if [[ "$DO_APPLE" == true ]] && has_every_secret APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+if [[ "$REPLACE" != true && "$DO_APPLE" == true ]] && has_every_secret APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
     KEYCHAIN_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; then
-  printf '  %s✓ the six macOS secrets are already stored%s, skipping the Apple stages\n' "$GREEN" "$RESET"
+  printf '  %s✓ the six macOS secrets are already stored%s, skipping the Apple stages (--replace overwrites them)\n' "$GREEN" "$RESET"
   DO_APPLE=false
   APPLE_SECRETS_STORED=true
 fi
-if [[ "$DO_AZURE" == true ]] && has_every_secret AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET \
+if [[ "$REPLACE" != true && "$DO_AZURE" == true ]] && has_every_secret AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET \
     AZURE_ARTIFACT_SIGNING_ENDPOINT AZURE_ARTIFACT_SIGNING_ACCOUNT \
     AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE; then
-  printf '  %s✓ the six Windows secrets are already stored%s, skipping the Azure stages\n' "$GREEN" "$RESET"
+  printf '  %s✓ the six Windows secrets are already stored%s, skipping the Azure stages (--replace overwrites them)\n' "$GREEN" "$RESET"
   DO_AZURE=false
 fi
 
