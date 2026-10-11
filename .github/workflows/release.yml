@@ -136,12 +136,25 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           rm -f "$certificate"
 
-          identity=$(security find-identity -v -p codesigning build.keychain \
-            | grep "Developer ID Application" | head -n 1 | awk -F'"' '{print $2}') || true
-          if [ -z "$identity" ]; then
+          # Each line of find-identity is `N) <SHA-1> "<name>"`, and one identity can appear on
+          # more than one line, so identities are counted by their SHA-1 hash. The bundler hands
+          # codesign the name, and codesign refuses a name that matches two certificates. That
+          # happens when an old and a renewed certificate were both exported into the .p12.
+          developer_ids=$(security find-identity -v -p codesigning build.keychain \
+            | grep '"Developer ID Application' | awk '!seen[$2]++') || true
+          count=$(printf '%s' "$developer_ids" | grep -c . || true)
+          if [ "$count" -eq 0 ]; then
             echo "the imported certificate is not a Developer ID Application certificate" >&2
             exit 1
           fi
+          if [ "$count" -gt 1 ]; then
+            echo "APPLE_CERTIFICATE holds $count Developer ID Application certificates, and codesign" >&2
+            echo "cannot choose between them. Delete the old one from the login keychain, then run" >&2
+            echo "scripts/setup-signing.sh --apple-only --replace. The certificates found:" >&2
+            printf '%s\n' "$developer_ids" >&2
+            exit 1
+          fi
+          identity=$(printf '%s' "$developer_ids" | awk -F'"' '{print $2}')
           echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
 
       - name: Build the DMG
