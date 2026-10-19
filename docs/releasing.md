@@ -270,10 +270,10 @@ What a good result looks like:
 
 - `codesign --verify` prints `valid on disk` and `satisfies its Designated Requirement`.
 - `spctl --assess` prints `accepted` and `source=Notarized Developer ID`. A `source=Unnotarized
-Developer ID` means the build was signed but not notarized. `rejected` means it was not
+  Developer ID` means the build was signed but not notarized. `rejected` means it was not
   signed.
 - `xcrun stapler validate` prints `The validate action worked!`. `does not have a ticket
-stapled to it` means notarization did not finish.
+  stapled to it` means notarization did not finish.
 
 To see which certificate signed it:
 
