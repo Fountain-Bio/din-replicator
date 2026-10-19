@@ -24,7 +24,7 @@
     "@tanstack/react-table": "9.2.8",
     "@tauri-apps/api": "2.12.2",
     "@tauri-apps/plugin-process": "2.4.0",
-    "@tauri-apps/plugin-updater": "2.13.2",
+    "@tauri-apps/plugin-updater": "2.14.0",
     "@zebrash/browser": "1.0.4",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
