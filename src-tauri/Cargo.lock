@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "din-replicator"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "chrono",
  "rusqlite",
